@@ -10,3 +10,13 @@
 # END DAW
 __pycache__/
 dilux-agentic-workflow/
+
+# Backend (Python)
+venv/
+backend/venv/
+.env
+.pytest_cache/
+
+# Frontend (Node)
+node_modules/
+frontend/dist/
