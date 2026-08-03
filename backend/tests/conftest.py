@@ -21,6 +21,16 @@ REQUIRED_ENV = {
     "FRONTEND_ORIGIN": "http://localhost:5173",
 }
 
+# Setea las variables ya al cargar este módulo (no solo en la fixture de
+# abajo): `app.core.database`/`app.core.config` se importan a nivel de
+# módulo desde los tests de Block 2 (`service.py`, `repository.py`), y esos
+# imports pueden ocurrir durante la fase de *collection* de pytest, antes de
+# que corra ninguna fixture. Sin esto, `Settings()` fallaría al importar por
+# falta de env vars en ese momento. `setdefault` no pisa nada si el entorno
+# ya trae sus propios valores (p. ej. en CI).
+for _key, _value in REQUIRED_ENV.items():
+    os.environ.setdefault(_key, _value)
+
 
 @pytest.fixture
 def test_database_url() -> str:
@@ -37,3 +47,32 @@ def _required_env(monkeypatch: pytest.MonkeyPatch):
     """
     for key, value in REQUIRED_ENV.items():
         monkeypatch.setenv(key, value)
+
+
+@pytest.fixture
+def db_session(test_database_url: str):
+    """Sesión de SQLAlchemy contra la base de datos de test real (Block 2+).
+
+    Crea todas las tablas registradas en `Base.metadata` (incluye
+    `vehiculos`, de Block 1) antes del test y las dropea al terminar, para
+    que cada test arranque desde un estado limpio sin depender de invocar
+    `alembic` (eso ya lo cubre `test_migracion_crea_tabla_vehiculos` de
+    Block 1). Compartida entre bloques: Block 3 la reutilizará para sus
+    tests de endpoint.
+    """
+    import app.features.vehiculos.models  # noqa: F401 — registra el modelo en Base.metadata
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.database import Base
+
+    engine = create_engine(test_database_url)
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
