@@ -10,8 +10,8 @@
 
 | Sub-ticket | Title | PRD | Dependencies | Status |
 |---|---|---|---|---|
-| FEAT-001a | Gestión del pool de vehículos | prd-FEAT-001a.md | none | active |
-| FEAT-001b | Reservas y disponibilidad de vehículos | prd-FEAT-001b.md | depends on FEAT-001a | pending |
+| FEAT-001a | Gestión del pool de vehículos | prd-FEAT-001a.md | none | done (PR #1, se mergea cuando se apruebe) |
+| FEAT-001b | Reservas y disponibilidad de vehículos | prd-FEAT-001b.md | depends on FEAT-001a | active |
 
 ## Suggested implementation order
 
