@@ -11,11 +11,24 @@
 | Sub-ticket | Title | PRD | Dependencies | Status |
 |---|---|---|---|---|
 | FEAT-001a | Gestión del pool de vehículos | prd-FEAT-001a.md | none | done (PR #1, se mergea cuando se apruebe) |
-| FEAT-001b | Reservas y disponibilidad de vehículos | prd-FEAT-001b.md | depends on FEAT-001a | active |
+| FEAT-001b | Reservas y disponibilidad de vehículos | prd-FEAT-001b.md | depends on FEAT-001a | split into c/d/e (ver nota abajo) |
+| FEAT-001c | Consulta y creación de reservas | prd-FEAT-001c.md | depends on FEAT-001a | active |
+| FEAT-001d | Listado, filtros y cancelación de reservas | prd-FEAT-001d.md | depends on FEAT-001c, FEAT-001a | pending |
+| FEAT-001e | Integración con ciclo de vida del vehículo | prd-FEAT-001e.md | depends on FEAT-001c, FEAT-001a, FEAT-001d | pending |
 
 ## Suggested implementation order
 
-a → b
+a → c → d → e
+
+## Note on FEAT-001b
+
+FEAT-001b ("Reservas y disponibilidad de vehículos") se definió y validó como un único sub-ticket,
+pero en su propia fase DEFINE se detectó que también excedía el umbral recomendado (17 AC contra
+5-7). Se dividió por segunda vez en `FEAT-001c`/`FEAT-001d`/`FEAT-001e`, continuando el alfabeto de
+este mismo índice en vez de anidar un sub-índice propio (`FEAT-001ba`, etc.) — decisión del usuario
+en DEFINE de FEAT-001b, 2026-08-05. `prd-FEAT-001b.md` se conserva como documento histórico/de
+contexto (no se borra, para no perder la trazabilidad hacia PRD-FEAT-001 original), pero no es un
+ticket ejecutable: su contenido vive redistribuido en FEAT-001c/d/e.
 
 ## Original context
 

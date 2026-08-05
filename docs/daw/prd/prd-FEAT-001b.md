@@ -1,5 +1,10 @@
 # PRD FEAT-001b: Reservas y disponibilidad de vehículos
 
+> ⚠️ **Superado.** Este PRD se dividió por segunda vez en DEFINE (2026-08-05) por exceder el umbral
+> de tamaño recomendado (17 AC). Su contenido vive redistribuido en `prd-FEAT-001c.md`,
+> `prd-FEAT-001d.md` y `prd-FEAT-001e.md` — ver el índice en `prd-FEAT-001.md`. Se conserva como
+> documento histórico/de contexto, no es un ticket ejecutable.
+
 | Field | Value |
 |-------|-------|
 | Ticket | FEAT-001b |
