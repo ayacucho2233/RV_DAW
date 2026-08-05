@@ -5,7 +5,7 @@
 | Ticket | FEAT-001c |
 | Tracker | none |
 | Date | 2026-08-05 |
-| PRD loops | 0 |
+| PRD loops | 1 |
 
 ## Context and Problem
 
@@ -28,6 +28,7 @@ Con el pool de vehículos ya gestionable por el administrador (FEAT-001a), falta
 - FR-02: El sistema debe permitir crear una reserva indicando: nombre del empleado (quien será el conductor), número de legajo, número de licencia de conducir, vehículo, fecha/hora de inicio, fecha/hora de fin y destino.
 - FR-03: El sistema debe validar que no exista otra reserva activa para el mismo vehículo en el período solicitado.
 - FR-04: El sistema debe indicar si un vehículo está disponible para un período dado.
+- FR-05: El sistema no debe permitir crear una reserva sobre un vehículo que no esté en estado "activo" (es decir, en "baja temporal" o "baja definitiva").
 
 ## Non-Functional Requirements
 
@@ -46,6 +47,7 @@ Con el pool de vehículos ya gestionable por el administrador (FEAT-001a), falta
 - AC-05 (FR-03): IF otro empleado intenta reservar un vehículo en un período que se superpone con una reserva activa existente para ese vehículo, THEN THE sistema SHALL rechazar la reserva e informar el conflicto.
 - AC-06 (NFR-03): WHEN llegan dos solicitudes de reserva simultáneas para el mismo vehículo y el mismo período, THE sistema SHALL confirmar solo una de las reservas y rechazar la otra con un código de conflicto (409).
 - AC-07 (FR-04): WHEN se consulta la disponibilidad de vehículos para un rango horario dado, THE sistema SHALL marcar como no disponible todo vehículo con una reserva activa que se superponga con ese rango, y como disponible el resto.
+- AC-08 (FR-05): IF un empleado intenta crear una reserva sobre un vehículo en estado "baja temporal" o "baja definitiva", THEN THE sistema SHALL rechazar la reserva e informar que el vehículo no está disponible para reservas.
 
 ## Out of Scope
 
@@ -84,6 +86,8 @@ Con el pool de vehículos ya gestionable por el administrador (FEAT-001a), falta
 |---|---|
 | FR-01..FR-03 | FR-01..FR-03 |
 | FR-04 | FR-07 |
+| FR-05 | (nuevo, agregado en corrective loop PLAN→DEFINE, PRD loops 1 — no viene de FEAT-001b) |
 | NFR-01..NFR-03 | NFR-01..NFR-03 |
 | AC-01..AC-06 | AC-01..AC-06 |
 | AC-07 | AC-13 |
+| AC-08 | (nuevo, agregado en corrective loop PLAN→DEFINE, PRD loops 1 — no viene de FEAT-001b) |
