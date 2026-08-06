@@ -35,6 +35,24 @@ def obtener_por_id(db: Session, vehiculo_id: int) -> Vehiculo | None:
     return db.get(Vehiculo, vehiculo_id)
 
 
+def obtener_por_id_con_lock(db: Session, vehiculo_id: int) -> Vehiculo | None:
+    """`SELECT ... FOR UPDATE` sobre la fila de `vehiculos` (NFR-03/AC-06,
+    usado por `reservas.service.crear_reserva`).
+
+    La fila del vehículo SIEMPRE existe si `vehiculo_id` es válido (a
+    diferencia de las reservas solapadas, que pueden no tener ninguna fila
+    previa que lockear — "phantom row"/gap-locking: `SELECT ... FOR UPDATE`
+    en Postgres solo bloquea las filas que la consulta efectivamente
+    devuelve, así que lockear reservas no sirve cuando es la primera del
+    slot). Lockear el vehículo serializa TODOS los intentos concurrentes de
+    `crear_reserva` sobre el mismo `vehiculo_id`, sin importar si hay 0 o N
+    reservas previas. Sigue siendo de solo lectura sobre `vehiculos` — no
+    escribe nada en esa tabla."""
+    return db.execute(
+        select(Vehiculo).where(Vehiculo.id == vehiculo_id).with_for_update()
+    ).scalar_one_or_none()
+
+
 def obtener_por_patente(db: Session, patente: str) -> Vehiculo | None:
     return db.execute(
         select(Vehiculo).where(Vehiculo.patente == patente)

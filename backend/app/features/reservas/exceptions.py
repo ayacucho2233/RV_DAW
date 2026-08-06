@@ -11,8 +11,41 @@ errores; nunca captura silenciosa"). Mismo patrón que
 
 
 class ReservaDomainError(Exception):
-    """Clase base de las excepciones de dominio de `reservas`.
+    """Clase base de las excepciones de dominio de `reservas`."""
 
-    Block 2 agrega las subclases concretas (`VehiculoNoEncontradoError`,
-    `VehiculoNoActivoError`, `ReservaSolapadaError`).
+
+class VehiculoNoEncontradoError(ReservaDomainError):
+    """No existe ningún vehículo con el `vehiculo_id` solicitado."""
+
+    def __init__(self, vehiculo_id: int):
+        self.vehiculo_id = vehiculo_id
+        super().__init__(f"No se encontró el vehículo con id {vehiculo_id}.")
+
+
+class VehiculoNoActivoError(ReservaDomainError):
+    """El vehículo existe pero no está en estado `activo` (FR-05/AC-08).
+
+    Cubre `baja_temporal` y `baja_definitiva`: un vehículo dado de baja no
+    debería poder reservarse aunque todavía no tenga reservas activas
+    bloqueándolo.
     """
+
+    def __init__(self, vehiculo_id: int, estado_actual):
+        self.vehiculo_id = vehiculo_id
+        self.estado_actual = estado_actual
+        super().__init__(
+            f"El vehículo con id {vehiculo_id} no está disponible para reservas "
+            f"(estado actual: '{estado_actual}')."
+        )
+
+
+class ReservaSolapadaError(ReservaDomainError):
+    """Existe otra reserva activa que se superpone con el período solicitado
+    para el mismo vehículo (FR-03/AC-05, cierre de la carrera NFR-03/AC-06).
+    """
+
+    def __init__(self, vehiculo_id: int):
+        self.vehiculo_id = vehiculo_id
+        super().__init__(
+            f"Ya existe una reserva activa que se superpone para el vehículo {vehiculo_id}."
+        )
