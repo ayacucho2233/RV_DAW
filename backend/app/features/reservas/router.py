@@ -1,7 +1,8 @@
-"""Router HTTP del feature `reservas` (Block 3).
+"""Router HTTP del feature `reservas` (Block 3 de FEAT-001c; Block 2 de
+FEAT-001d agrega `GET /reservas` y `PATCH /reservas/{id}/cancelar`).
 
-Los 3 endpoints públicos del pool de reservas. Cada uno llama al método de
-`service.py` (Block 2) correspondiente dentro de un `try/except` que
+Los 5 endpoints públicos del pool de reservas. Cada uno llama al método de
+`service.py` correspondiente dentro de un `try/except` que
 traduce las excepciones de dominio a HTTP según la tabla del spec — nunca
 accede a la base directamente (AGENTS.md: "Layer separation", el router
 solo habla con `service.py`).
@@ -28,12 +29,14 @@ para no depender de registrar un exception handler de `slowapi` en
 usado en `app.core.security.verificar_admin`. Al superarse el límite,
 `429 Too Many Requests` con el mismo `HTTPException` de status/mensaje.
 
-`POST /reservas`: máx. 10 altas por IP por hora. `GET /reservas/vehiculos` y
-`GET /reservas/disponibilidad`: máx. 60 consultas por IP por minuto —
-contadas de forma independiente entre sí (cada endpoint tiene su propia
-clave de contador), no un único balde de lectura compartido entre los dos,
-ya que el spec no exige compartirlo y así un abuso de uno no descuenta cupo
-del otro.
+`POST /reservas` y `PATCH /reservas/{id}/cancelar`: máx. 10 mutaciones por
+IP por hora cada uno. `GET /reservas/vehiculos`, `GET /reservas/disponibilidad`
+y `GET /reservas`: máx. 60 consultas por IP por minuto cada uno — los 5
+endpoints cuentan de forma independiente entre sí (cada uno con su propia
+clave de contador: `"reservas-post"`, `"reservas-cancelar"`,
+`"reservas-vehiculos"`, `"reservas-disponibilidad"`, `"reservas-listado"`),
+no un único balde compartido, ya que el spec no exige compartirlo y así un
+abuso de uno no descuenta cupo del otro.
 """
 from datetime import datetime
 
@@ -46,13 +49,19 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.features.reservas import service
 from app.features.reservas.exceptions import (
+    LegajoNoCoincideError,
+    ReservaNoEncontradaError,
     ReservaSolapadaError,
+    ReservaYaCanceladaError,
     VehiculoNoActivoError,
     VehiculoNoEncontradoError,
 )
 from app.features.reservas.schemas import (
+    CancelarReservaRequest,
     DisponibilidadOut,
+    FiltroPeriodoReserva,
     ReservaCreate,
+    ReservaListItem,
     ReservaOut,
     VehiculoPublico,
 )
@@ -63,6 +72,9 @@ _MAPEO_ERRORES_HTTP = {
     VehiculoNoEncontradoError: status.HTTP_404_NOT_FOUND,
     VehiculoNoActivoError: status.HTTP_409_CONFLICT,
     ReservaSolapadaError: status.HTTP_409_CONFLICT,
+    ReservaNoEncontradaError: status.HTTP_404_NOT_FOUND,
+    ReservaYaCanceladaError: status.HTTP_409_CONFLICT,
+    LegajoNoCoincideError: status.HTTP_403_FORBIDDEN,
 }
 
 
@@ -127,4 +139,34 @@ def crear_reserva(
     try:
         return service.crear_reserva(db, data, ip_origen)
     except (VehiculoNoEncontradoError, VehiculoNoActivoError, ReservaSolapadaError) as exc:
+        raise _a_http(exc) from exc
+
+
+@router.get("", response_model=list[ReservaListItem])
+def listar_reservas(
+    request: Request,
+    periodo: FiltroPeriodoReserva | None = None,
+    db: Session = Depends(get_db),
+) -> list[ReservaListItem]:
+    """FR-01/FR-02: listado público de todas las reservas, opcionalmente
+    filtrado por `periodo` (`futuras`/`en_curso`/`pasadas`, puramente
+    temporal — no excluye reservas `cancelada`)."""
+    _aplicar_rate_limit(request, _LIMITE_LECTURA, "reservas-listado")
+    return service.listar_reservas(db, periodo)
+
+
+@router.patch("/{reserva_id}/cancelar", response_model=ReservaOut)
+def cancelar_reserva(
+    request: Request,
+    reserva_id: int,
+    data: CancelarReservaRequest,
+    db: Session = Depends(get_db),
+) -> ReservaOut:
+    """FR-03: cancela una reserva propia, validando que el `legajo`
+    indicado coincida con el de la reserva (AC-06)."""
+    _aplicar_rate_limit(request, _LIMITE_ALTAS, "reservas-cancelar")
+    ip_origen = request.client.host if request.client else "desconocido"
+    try:
+        return service.cancelar_reserva(db, reserva_id, data.legajo, ip_origen)
+    except (ReservaNoEncontradaError, ReservaYaCanceladaError, LegajoNoCoincideError) as exc:
         raise _a_http(exc) from exc

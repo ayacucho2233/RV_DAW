@@ -80,6 +80,30 @@ def _reserva_payload(vehiculo_id, inicio_h=0, fin_h=2, **overrides):
     return payload
 
 
+def _dt_real_iso(offset_hours: float) -> str:
+    """ISO 8601 timezone-aware, offset en horas desde el momento real de
+    ejecución del test (a diferencia de `_dt_iso`, fijo en 2026-09-01) —
+    necesario para los tests de filtro por período (Block 2), que comparan
+    contra `datetime.now(timezone.utc)`."""
+    return (datetime.now(timezone.utc) + timedelta(hours=offset_hours)).isoformat()
+
+
+def _reserva_payload_real(vehiculo_id, inicio_h, fin_h, **overrides):
+    """Igual que `_reserva_payload`, pero con fechas relativas al momento
+    real de ejecución (`_dt_real_iso`) en vez de la base fija 2026-09-01."""
+    payload = dict(
+        nombre_empleado="Juan Perez",
+        legajo="1234",
+        licencia="B1",
+        vehiculo_id=vehiculo_id,
+        fecha_inicio=_dt_real_iso(inicio_h),
+        fecha_fin=_dt_real_iso(fin_h),
+        destino="Rosario",
+    )
+    payload.update(overrides)
+    return payload
+
+
 def test_get_vehiculos_pool_200(app_client, db_session):
     """AC-01: listado público del pool, solo patente/tipo."""
     _crear_vehiculo(db_session, patente="AA111AA", tipo="auto")
@@ -226,3 +250,192 @@ def test_get_disponibilidad_rate_limit_429(app_client, db_session):
     )
 
     assert resp_bloqueado.status_code == 429
+
+
+# --- Block 2: GET /reservas (listado + filtro por período) --------------
+
+
+def test_get_reservas_sin_filtro_200(app_client, db_session):
+    """AC-01: el listado devuelve todas las reservas existentes,
+    enriquecidas con patente/tipo, sin exponer legajo/licencia."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
+    assert resp_post.status_code == 201
+
+    resp = app_client.get("/reservas")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    item = body[0]
+    assert item["patente"] == vehiculo.patente
+    assert item["destino"] == "Rosario"
+    assert item["estado"] == "activa"
+    assert "legajo" not in item
+    assert "licencia" not in item
+
+
+def test_get_reservas_filtro_futuras_200(app_client, db_session):
+    """AC-02: `periodo=futuras` devuelve solo reservas cuya `fecha_inicio`
+    es posterior a ahora."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_futura = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, 10, 12)
+    )
+    assert resp_futura.status_code == 201
+    resp_pasada = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+    assert resp_pasada.status_code == 201
+
+    resp = app_client.get("/reservas", params={"periodo": "futuras"})
+
+    assert resp.status_code == 200
+    ids = {item["id"] for item in resp.json()}
+    assert ids == {resp_futura.json()["id"]}
+
+
+def test_get_reservas_filtro_en_curso_200(app_client, db_session):
+    """AC-03: `periodo=en_curso` devuelve solo reservas donde
+    `fecha_inicio <= ahora <= fecha_fin`."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_en_curso = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -1, 1)
+    )
+    assert resp_en_curso.status_code == 201
+    resp_futura = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, 10, 12)
+    )
+    assert resp_futura.status_code == 201
+
+    resp = app_client.get("/reservas", params={"periodo": "en_curso"})
+
+    assert resp.status_code == 200
+    ids = {item["id"] for item in resp.json()}
+    assert ids == {resp_en_curso.json()["id"]}
+
+
+def test_get_reservas_filtro_pasadas_200(app_client, db_session):
+    """AC-04: `periodo=pasadas` devuelve solo reservas cuya `fecha_fin` es
+    anterior a ahora."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_pasada = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+    assert resp_pasada.status_code == 201
+    resp_futura = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, 10, 12)
+    )
+    assert resp_futura.status_code == 201
+
+    resp = app_client.get("/reservas", params={"periodo": "pasadas"})
+
+    assert resp.status_code == 200
+    ids = {item["id"] for item in resp.json()}
+    assert ids == {resp_pasada.json()["id"]}
+
+
+def test_get_reservas_periodo_invalido_422(app_client, db_session):
+    """`periodo` fuera del enum `FiltroPeriodoReserva` se rechaza con 422."""
+    resp = app_client.get("/reservas", params={"periodo": "invalido"})
+
+    assert resp.status_code == 422
+
+
+# --- Block 2: PATCH /reservas/{id}/cancelar ------------------------------
+
+
+def test_patch_cancelar_reserva_ok_200(app_client, db_session):
+    """AC-05: cancelar con el legajo correcto pasa `estado` a `cancelada`."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
+    assert resp_post.status_code == 201
+    reserva_id = resp_post.json()["id"]
+
+    resp = app_client.patch(
+        f"/reservas/{reserva_id}/cancelar", json={"legajo": "1234"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["estado"] == "cancelada"
+
+
+def test_patch_cancelar_reserva_inexistente_404(app_client, db_session):
+    resp = app_client.patch("/reservas/9999/cancelar", json={"legajo": "1234"})
+
+    assert resp.status_code == 404
+
+
+def test_patch_cancelar_reserva_ya_cancelada_409(app_client, db_session):
+    """Decisión de diseño confirmada en PLAN: cancelar dos veces devuelve
+    409 en la segunda, no 200 idempotente."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
+    reserva_id = resp_post.json()["id"]
+    resp1 = app_client.patch(
+        f"/reservas/{reserva_id}/cancelar", json={"legajo": "1234"}
+    )
+    assert resp1.status_code == 200
+
+    resp2 = app_client.patch(
+        f"/reservas/{reserva_id}/cancelar", json={"legajo": "1234"}
+    )
+
+    assert resp2.status_code == 409
+
+
+def test_patch_cancelar_reserva_legajo_no_coincide_403(app_client, db_session):
+    """AC-06: legajo distinto al de la reserva se rechaza con 403 y el
+    mensaje no revela el legajo real."""
+    vehiculo = _crear_vehiculo(db_session)
+    resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
+    reserva_id = resp_post.json()["id"]
+
+    resp = app_client.patch(
+        f"/reservas/{reserva_id}/cancelar", json={"legajo": "9999"}
+    )
+
+    assert resp.status_code == 403
+    assert "1234" not in resp.json()["detail"]
+
+
+def test_patch_cancelar_reserva_legajo_faltante_422(app_client, db_session):
+    vehiculo = _crear_vehiculo(db_session)
+    resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
+    reserva_id = resp_post.json()["id"]
+
+    resp = app_client.patch(f"/reservas/{reserva_id}/cancelar", json={})
+
+    assert resp.status_code == 422
+
+
+def test_get_reservas_rate_limit_429(app_client, db_session):
+    """TM-C-02: máx. 60 consultas por IP por minuto sobre la clave
+    `"reservas-listado"`, independiente de `"reservas-vehiculos"`."""
+    for _ in range(60):
+        resp = app_client.get("/reservas")
+        assert resp.status_code == 200, resp.text
+
+    resp_bloqueado = app_client.get("/reservas")
+    assert resp_bloqueado.status_code == 429
+
+    resp_vehiculos = app_client.get("/reservas/vehiculos")
+    assert resp_vehiculos.status_code == 200
+
+
+def test_patch_cancelar_rate_limit_429(app_client, db_session):
+    """TM-C-02: máx. 10 mutaciones por IP por hora sobre la clave
+    `"reservas-cancelar"`, independiente de `"reservas-post"` (agotar el
+    cupo de cancelación no descuenta el de alta, y viceversa)."""
+    for _ in range(10):
+        resp = app_client.patch("/reservas/9999/cancelar", json={"legajo": "1234"})
+        assert resp.status_code == 404, resp.text
+
+    resp_bloqueado = app_client.patch(
+        "/reservas/9999/cancelar", json={"legajo": "1234"}
+    )
+    assert resp_bloqueado.status_code == 429
+
+    vehiculo = _crear_vehiculo(db_session)
+    resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
+    assert resp_post.status_code == 201
