@@ -10,11 +10,18 @@ existencia real del vehículo y su estado se validan en `service.py`, no acá
 (no es responsabilidad de Pydantic).
 """
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.features.reservas.models import EstadoReserva
 from app.features.vehiculos.models import TipoVehiculo
+
+FiltroPeriodoReserva = Literal["futuras", "en_curso", "pasadas"]
+"""Tipo del query param `periodo` (Block 2). Nombre deliberadamente distinto
+de `estado` (el campo real del modelo, `activa`/`cancelada`) para no
+confundir "clasificación temporal calculada" con "estado persistido" en la
+misma respuesta."""
 
 
 def _validar_timezone_aware(valor: datetime, nombre_campo: str) -> datetime:
@@ -88,3 +95,37 @@ class DisponibilidadOut(BaseModel):
     patente: str
     tipo: TipoVehiculo
     disponible: bool
+
+
+class CancelarReservaRequest(BaseModel):
+    """Payload de cancelación de una reserva propia (FR-03/AC-06)."""
+
+    legajo: str = Field(..., min_length=1, max_length=20)
+
+
+class ReservaListItem(BaseModel):
+    """Ítem del listado público de reservas (FR-01/FR-02).
+
+    Enriquecido con `patente`/`tipo` del vehículo asociado — mejora de UX no
+    exigida por los AC del PRD, mismo criterio ya usado en
+    `DisponibilidadOut` (evita que el empleado tenga que interpretar un
+    `vehiculo_id` crudo).
+
+    Deliberadamente NO incluye `legajo` ni `licencia` (a diferencia de
+    `ReservaOut`) — mitigación TM-D-01 del threat model: exponerlos en un
+    listado público convertiría a este mismo endpoint en un oráculo que
+    anula la protección de FR-04/AC-06 (cualquiera podría leer el legajo de
+    otro empleado acá y usarlo para cancelar su reserva).
+    """
+
+    id: int
+    vehiculo_id: int
+    nombre_empleado: str
+    fecha_inicio: datetime
+    fecha_fin: datetime
+    destino: str
+    estado: EstadoReserva
+    created_at: datetime
+    updated_at: datetime
+    patente: str
+    tipo: TipoVehiculo

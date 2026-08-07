@@ -19,14 +19,19 @@ from sqlalchemy.orm import sessionmaker
 
 from app.features.reservas import repository
 from app.features.reservas.exceptions import (
+    LegajoNoCoincideError,
+    ReservaNoEncontradaError,
     ReservaSolapadaError,
+    ReservaYaCanceladaError,
     VehiculoNoActivoError,
     VehiculoNoEncontradoError,
 )
 from app.features.reservas.schemas import ReservaCreate
 from app.features.reservas.service import (
+    cancelar_reserva,
     consultar_disponibilidad,
     crear_reserva,
+    listar_reservas,
     listar_vehiculos_pool,
 )
 from app.features.vehiculos import repository as vehiculos_repository
@@ -58,6 +63,14 @@ def _dt(offset_hours=0):
     """Datetime timezone-aware, offset en horas desde un punto fijo futuro."""
     base = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
     return base + timedelta(hours=offset_hours)
+
+
+def _dt_real(offset_hours=0):
+    """Datetime timezone-aware relativo al momento real de ejecución del
+    test (a diferencia de `_dt`, fijo en 2026-09-01) — necesario para los
+    tests de filtro por período, que comparan contra
+    `datetime.now(timezone.utc)`."""
+    return datetime.now(timezone.utc) + timedelta(hours=offset_hours)
 
 
 def test_listar_vehiculos_pool(db_session):
@@ -329,3 +342,224 @@ def test_crear_reserva_loguea_operacion_sin_pii(db_session, caplog):
     )
     assert not any("Nombre Secreto Unico" in m for m in mensajes)
     assert not any("LICENCIA-SECRETA" in m for m in mensajes)
+
+
+# --- Block 1 de spec-FEAT-001d: listado, filtros y cancelación ---
+
+
+def test_listar_reservas_sin_filtro(db_session):
+    """AC-01: devuelve todas las reservas existentes, enriquecidas con
+    patente/tipo del vehículo asociado."""
+    v1 = _crear_vehiculo(db_session, patente="AA111AA", tipo="auto")
+    v2 = _crear_vehiculo(db_session, patente="BB222BB", tipo="camioneta")
+    crear_reserva(db_session, _reserva_data(v1.id, _dt(0), _dt(2)), ip_origen=IP_TEST)
+    crear_reserva(db_session, _reserva_data(v2.id, _dt(4), _dt(6)), ip_origen=IP_TEST)
+
+    resultado = listar_reservas(db_session)
+
+    assert len(resultado) == 2
+    por_vehiculo = {r.vehiculo_id: r for r in resultado}
+    assert por_vehiculo[v1.id].patente == "AA111AA"
+    assert por_vehiculo[v1.id].tipo.value == "auto"
+    assert por_vehiculo[v2.id].patente == "BB222BB"
+
+
+def test_listar_reservas_filtro_futuras(db_session):
+    """AC-02: solo devuelve reservas cuya `fecha_inicio` es posterior a
+    ahora."""
+    v_futura = _crear_vehiculo(db_session, patente="FU111TU", tipo="auto")
+    v_pasada = _crear_vehiculo(db_session, patente="PA222SA", tipo="auto")
+    crear_reserva(
+        db_session, _reserva_data(v_futura.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+    crear_reserva(
+        db_session, _reserva_data(v_pasada.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+
+    resultado = listar_reservas(db_session, periodo="futuras")
+
+    assert {r.vehiculo_id for r in resultado} == {v_futura.id}
+
+
+def test_listar_reservas_filtro_en_curso(db_session):
+    """AC-03: solo devuelve reservas donde `fecha_inicio <= ahora <=
+    fecha_fin`."""
+    v_en_curso = _crear_vehiculo(db_session, patente="EC111EC", tipo="auto")
+    v_futura = _crear_vehiculo(db_session, patente="FU222TU", tipo="auto")
+    crear_reserva(
+        db_session, _reserva_data(v_en_curso.id, _dt_real(-1), _dt_real(1)), ip_origen=IP_TEST
+    )
+    crear_reserva(
+        db_session, _reserva_data(v_futura.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+
+    resultado = listar_reservas(db_session, periodo="en_curso")
+
+    assert {r.vehiculo_id for r in resultado} == {v_en_curso.id}
+
+
+def test_listar_reservas_filtro_pasadas(db_session):
+    """AC-04: solo devuelve reservas cuya `fecha_fin` es anterior a ahora."""
+    v_pasada = _crear_vehiculo(db_session, patente="PA333SA", tipo="auto")
+    v_futura = _crear_vehiculo(db_session, patente="FU333TU", tipo="auto")
+    crear_reserva(
+        db_session, _reserva_data(v_pasada.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+    crear_reserva(
+        db_session, _reserva_data(v_futura.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+
+    resultado = listar_reservas(db_session, periodo="pasadas")
+
+    assert {r.vehiculo_id for r in resultado} == {v_pasada.id}
+
+
+def test_listar_reservas_filtro_incluye_canceladas_en_su_periodo(db_session):
+    """Confirma que el filtro por período es puramente temporal: una
+    reserva cancelada que cae en el rango futuro sigue apareciendo como
+    'futura' (no se filtra por `estado`), evitando un falso supuesto."""
+    vehiculo = _crear_vehiculo(db_session, patente="CA111CA", tipo="auto")
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+    cancelar_reserva(db_session, reserva.id, legajo="1234", ip_origen=IP_TEST)
+
+    resultado = listar_reservas(db_session, periodo="futuras")
+
+    assert len(resultado) == 1
+    assert resultado[0].estado.value == "cancelada"
+
+
+def test_listar_reservas_no_expone_legajo_ni_licencia(db_session):
+    """TM-D-01: `ReservaListItem` no expone `legajo` ni `licencia` aunque la
+    `Reserva` origen sí los tenga (evita que el listado público se
+    convierta en un oráculo que anule la protección de AC-06)."""
+    vehiculo = _crear_vehiculo(db_session)
+    crear_reserva(
+        db_session,
+        _reserva_data(vehiculo.id, _dt(0), _dt(2), legajo="5555", licencia="B2"),
+        ip_origen=IP_TEST,
+    )
+
+    resultado = listar_reservas(db_session)
+
+    assert len(resultado) == 1
+    assert not hasattr(resultado[0], "legajo")
+    assert not hasattr(resultado[0], "licencia")
+
+
+def test_cancelar_reserva_ok(db_session):
+    """AC-05: cancelar una reserva activa pasa su `estado` a `cancelada`."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(db_session, _reserva_data(vehiculo.id, _dt(0), _dt(2)), ip_origen=IP_TEST)
+
+    resultado = cancelar_reserva(db_session, reserva.id, legajo="1234", ip_origen=IP_TEST)
+
+    assert resultado.estado.value == "cancelada"
+
+
+def test_cancelar_reserva_libera_vehiculo(db_session):
+    """AC-05: tras cancelar, una nueva reserva solapada sobre el mismo
+    vehículo/período ya no choca contra `ReservaSolapadaError` (el chequeo
+    de solapamiento solo considera reservas `activa`)."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(db_session, _reserva_data(vehiculo.id, _dt(0), _dt(4)), ip_origen=IP_TEST)
+
+    cancelar_reserva(db_session, reserva.id, legajo="1234", ip_origen=IP_TEST)
+
+    nueva = crear_reserva(db_session, _reserva_data(vehiculo.id, _dt(1), _dt(3)), ip_origen=IP_TEST)
+    assert nueva.id is not None
+
+
+def test_cancelar_reserva_inexistente(db_session):
+    """404 de dominio: `reserva_id` que no existe."""
+    with pytest.raises(ReservaNoEncontradaError):
+        cancelar_reserva(db_session, 9999, legajo="1234", ip_origen=IP_TEST)
+
+
+def test_cancelar_reserva_ya_cancelada(db_session):
+    """409: cancelar una reserva ya cancelada se rechaza explícitamente, no
+    se responde éxito idempotente (decisión de diseño confirmada en PLAN)."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(db_session, _reserva_data(vehiculo.id, _dt(0), _dt(2)), ip_origen=IP_TEST)
+    cancelar_reserva(db_session, reserva.id, legajo="1234", ip_origen=IP_TEST)
+
+    with pytest.raises(ReservaYaCanceladaError):
+        cancelar_reserva(db_session, reserva.id, legajo="1234", ip_origen=IP_TEST)
+
+
+def test_cancelar_reserva_legajo_no_coincide(db_session):
+    """AC-06: el `legajo` indicado debe coincidir con el de la reserva; el
+    mensaje de error no revela el legajo real (evita filtrar el dato por el
+    camino de un mensaje de error)."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt(0), _dt(2), legajo="1234"), ip_origen=IP_TEST
+    )
+
+    with pytest.raises(LegajoNoCoincideError) as excinfo:
+        cancelar_reserva(db_session, reserva.id, legajo="9999", ip_origen=IP_TEST)
+
+    assert "1234" not in str(excinfo.value)
+
+
+def test_cancelar_reserva_loguea_operacion_sin_pii(db_session, caplog):
+    """TM-C-04: el log de `cancelar_reserva` incluye vehiculo_id/legajo/
+    resultado/ip_origen y NUNCA nombre_empleado ni licencia (mismo criterio
+    que `crear_reserva`)."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(
+        db_session,
+        _reserva_data(
+            vehiculo.id,
+            _dt(0),
+            _dt(2),
+            nombre_empleado="Nombre Secreto Unico",
+            licencia="LICENCIA-SECRETA",
+            legajo="7777",
+        ),
+        ip_origen=IP_TEST,
+    )
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO, logger="app.features.reservas.service"):
+        cancelar_reserva(db_session, reserva.id, legajo="7777", ip_origen=IP_TEST)
+
+    mensajes = [r.getMessage() for r in caplog.records]
+    assert any(
+        "cancelar_reserva" in m
+        and str(vehiculo.id) in m
+        and "7777" in m
+        and IP_TEST in m
+        and "ok" in m
+        for m in mensajes
+    )
+    assert not any("Nombre Secreto Unico" in m for m in mensajes)
+    assert not any("LICENCIA-SECRETA" in m for m in mensajes)
+
+
+def test_cancelar_reserva_legajo_no_coincide_loguea_rechazada(db_session, caplog):
+    """TM-D-03/TM-D-04: un rechazo por `LegajoNoCoincideError` (alguien
+    probando legajos al azar para cancelar la reserva de otro) también debe
+    quedar logueado con `resultado="rechazada"` — mismo criterio que
+    `crear_reserva` ya aplica en su propio `except`. Sin esto no queda
+    ningún rastro de un intento de fuerza bruta sobre el legajo."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt(0), _dt(2), legajo="1234"), ip_origen=IP_TEST
+    )
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO, logger="app.features.reservas.service"):
+        with pytest.raises(LegajoNoCoincideError):
+            cancelar_reserva(db_session, reserva.id, legajo="9999", ip_origen=IP_TEST)
+
+    mensajes = [r.getMessage() for r in caplog.records]
+    assert any(
+        "cancelar_reserva" in m
+        and str(vehiculo.id) in m
+        and "9999" in m
+        and IP_TEST in m
+        and "rechazada" in m
+        for m in mensajes
+    )

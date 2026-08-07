@@ -49,3 +49,41 @@ class ReservaSolapadaError(ReservaDomainError):
         super().__init__(
             f"Ya existe una reserva activa que se superpone para el vehículo {vehiculo_id}."
         )
+
+
+class ReservaNoEncontradaError(ReservaDomainError):
+    """No existe ninguna reserva con el `reserva_id` solicitado (FR-03)."""
+
+    def __init__(self, reserva_id: int):
+        self.reserva_id = reserva_id
+        super().__init__(f"No se encontró la reserva con id {reserva_id}.")
+
+
+class ReservaYaCanceladaError(ReservaDomainError):
+    """La reserva ya tiene `estado == cancelada`.
+
+    Decisión de diseño confirmada con el usuario en PLAN: cancelar una
+    reserva ya cancelada se rechaza explícitamente (409), en vez de
+    responder éxito de forma idempotente — mismo criterio que
+    `TransicionEstadoInvalidaError` aplica a las transiciones de estado de
+    `vehiculos`.
+    """
+
+    def __init__(self, reserva_id: int):
+        self.reserva_id = reserva_id
+        super().__init__(f"La reserva con id {reserva_id} ya estaba cancelada.")
+
+
+class LegajoNoCoincideError(ReservaDomainError):
+    """El `legajo` indicado para cancelar no coincide con el de la reserva
+    (FR-04/AC-06).
+
+    El mensaje deliberadamente NO incluye el legajo real de la reserva —
+    evitar filtrar ese dato por el camino de un mensaje de error.
+    """
+
+    def __init__(self, reserva_id: int):
+        self.reserva_id = reserva_id
+        super().__init__(
+            f"El legajo indicado no coincide con el de la reserva {reserva_id}."
+        )
