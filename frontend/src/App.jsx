@@ -5,6 +5,8 @@ import LoginAdmin from "./features/vehiculos/LoginAdmin";
 import VehiculosAdminPage from "./features/vehiculos/VehiculosAdminPage";
 import ReservasPublicPage from "./features/reservas/ReservasPublicPage";
 import ReservasListado from "./features/reservas/ReservasListado";
+import MenuPrincipal from "./features/menu/MenuPrincipal";
+import { IconArrowLeft, IconLogout } from "./components/icons";
 
 /**
  * Raíz de la app. Mantiene la sesión del admin (`{ username, password } |
@@ -14,18 +16,30 @@ import ReservasListado from "./features/reservas/ReservasListado";
  * handler que limpia la sesión cuando el backend responde 401.
  *
  * Sin librería de ruteo (decisión de PLAN, spec Block 4 de FEAT-001c,
- * reafirmada en Block 3 de FEAT-001d: proyecto chico, sobre-ingeniería para
- * tres pantallas): un segundo estado local `vista` alterna entre la vista
- * pública de alta de reservas (`ReservasPublicPage`, sin sesión), el listado
- * público con filtro y cancelación (`ReservasListado`, FEAT-001d) y el login
- * de admin, detrás de botones explícitos. `"reservas"` es la vista que se
- * muestra por defecto sin sesión. Con sesión de admin activa, se muestra
- * siempre `VehiculosAdminPage`, sin importar el valor de `vista` (evita
- * quedar "atascado" en una vista pública tras loguearse).
+ * reafirmada en Block 3 de FEAT-001d y en spec FEAT-002 Block 3: proyecto
+ * chico, sobre-ingeniería para cuatro pantallas): un segundo estado local
+ * `vista` alterna entre 4 valores — `"menu"` (nuevo estado inicial, punto de
+ * entrada de FEAT-002), `"consultar"` (alta/disponibilidad de reservas,
+ * `ReservasPublicPage`), `"gestionar"` (listado/filtro/cancelación,
+ * `ReservasListado`) y `"admin"` (login, `LoginAdmin`), detrás de botones
+ * explícitos del menú principal (`MenuPrincipal`) o del header de navegación
+ * (`<header className="app-header">`, botón "Volver al menú").
+ *
+ * El guard de sesión (`if (session) return <VehiculosAdminPage />`) sigue
+ * teniendo prioridad absoluta sobre `vista` — decisión de PLAN confirmada con
+ * el usuario (spec FEAT-002, Summary): con sesión de admin activa, la app
+ * SIEMPRE muestra el panel admin, sin importar `vista`. No es un bug: un
+ * admin logueado NUNCA ve `ReservasPublicPage`/`ReservasListado`
+ * directamente; para navegar ahí primero tiene que cerrar sesión. Por eso,
+ * dentro de esa rama, "Volver al menú" también cierra la sesión (es la única
+ * forma de que el botón tenga efecto visible dado que el guard tiene
+ * prioridad), mientras que "Cerrar sesión" cierra la sesión pero permanece
+ * en la rama Administrador (vuelve a mostrar el login) — ambos botones son
+ * independientes (AC-06) con destinos distintos, sin reabrir el guard.
  */
 export default function App() {
   const [session, setSession] = useState(null);
-  const [vista, setVista] = useState("reservas");
+  const [vista, setVista] = useState("menu");
 
   useEffect(() => {
     setAuthSession(session);
@@ -38,42 +52,39 @@ export default function App() {
   if (session) {
     return (
       <SessionContext.Provider value={{ session, setSession }}>
+        <header className="app-header">
+          <button type="button" onClick={() => setSession(null)}>
+            <IconLogout aria-hidden="true" /> Cerrar sesión
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSession(null);
+              setVista("menu");
+            }}
+          >
+            <IconArrowLeft aria-hidden="true" /> Volver al menú
+          </button>
+        </header>
         <VehiculosAdminPage />
       </SessionContext.Provider>
     );
   }
 
-  if (vista === "login") {
-    return (
-      <SessionContext.Provider value={{ session, setSession }}>
-        <div>
-          <nav>
-            <button type="button" onClick={() => setVista("reservas")}>
-              Volver a reservas
-            </button>
-          </nav>
-          <LoginAdmin />
-        </div>
-      </SessionContext.Provider>
-    );
+  if (vista === "menu") {
+    return <MenuPrincipal onSelect={setVista} />;
   }
 
   return (
     <SessionContext.Provider value={{ session, setSession }}>
-      <div>
-        <nav>
-          <button type="button" onClick={() => setVista("reservas")}>
-            Reservar vehículo
-          </button>
-          <button type="button" onClick={() => setVista("listado")}>
-            Ver reservas
-          </button>
-          <button type="button" onClick={() => setVista("login")}>
-            Acceso administrador
-          </button>
-        </nav>
-        {vista === "listado" ? <ReservasListado /> : <ReservasPublicPage />}
-      </div>
+      <header className="app-header">
+        <button type="button" onClick={() => setVista("menu")}>
+          <IconArrowLeft aria-hidden="true" /> Volver al menú
+        </button>
+      </header>
+      {vista === "consultar" && <ReservasPublicPage />}
+      {vista === "gestionar" && <ReservasListado />}
+      {vista === "admin" && <LoginAdmin />}
     </SessionContext.Provider>
   );
 }
