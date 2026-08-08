@@ -16,6 +16,7 @@ venv/
 backend/venv/
 .env
 .pytest_cache/
+.coverage
 
 # Frontend (Node)
 node_modules/
