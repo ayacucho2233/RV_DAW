@@ -60,6 +60,7 @@ def db_session(test_database_url: str):
     Block 1). Compartida entre bloques: Block 3 la reutilizará para sus
     tests de endpoint.
     """
+    import app.features.reservas.models  # noqa: F401 — registra el modelo en Base.metadata
     import app.features.vehiculos.models  # noqa: F401 — registra el modelo en Base.metadata
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker

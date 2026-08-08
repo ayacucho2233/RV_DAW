@@ -8,10 +8,11 @@ from alembic import context
 
 from app.core.database import Base
 
-# Se importa por su efecto de registrar `Vehiculo` contra `Base.metadata`.
-# Cuando se agreguen más features (p. ej. `reservas` en FEAT-001b), sus
-# modelos se importan acá también para que `target_metadata` los incluya.
+# Se importa por su efecto de registrar cada modelo contra `Base.metadata`.
+# Cuando se agreguen más features, sus modelos se importan acá también para
+# que `target_metadata` los incluya.
 import app.features.vehiculos.models  # noqa: F401
+import app.features.reservas.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
