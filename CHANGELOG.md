@@ -8,6 +8,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-002** — Menú principal y rediseño visual del frontend: nueva pantalla de menú con
+  navegación a las 3 áreas de la app (Administrador, Gestionar reservas, Consultar), botones
+  "Volver al menú"/"Cerrar sesión", y una paleta de colores + set de íconos SVG consistente en
+  toda la aplicación, sin modificar la lógica de negocio de ninguna pantalla existente.
 - **FEAT-001e** — Integración con el ciclo de vida del vehículo: dar de baja (temporal o
   definitiva) un vehículo con reservas activas ahora se rechaza con 409, usando el mismo lock
   (`SELECT ... FOR UPDATE`) que ya usa la creación de reservas para prevenir condiciones de
