@@ -24,6 +24,7 @@ from app.features.vehiculos.exceptions import (
     PatenteYaExisteError,
     TipoInvalidoError,
     TransicionEstadoInvalidaError,
+    VehiculoConReservasActivasError,
     VehiculoNoEncontradoError,
 )
 from app.features.vehiculos.schemas import VehiculoCreate, VehiculoOut, VehiculoUpdate
@@ -35,6 +36,7 @@ _MAPEO_ERRORES_HTTP = {
     TipoInvalidoError: status.HTTP_400_BAD_REQUEST,
     TransicionEstadoInvalidaError: status.HTTP_409_CONFLICT,
     VehiculoNoEncontradoError: status.HTTP_404_NOT_FOUND,
+    VehiculoConReservasActivasError: status.HTTP_409_CONFLICT,
 }
 
 
@@ -78,10 +80,17 @@ def dar_de_baja_temporal(
     db: Session = Depends(get_db),
     _admin: str = Depends(verificar_admin),
 ) -> VehiculoOut:
-    """FR-03: baja temporal, solo desde estado 'activo'."""
+    """FR-03: baja temporal, solo desde estado 'activo'.
+
+    FEAT-001e/FR-01/AC-01: también rechaza con 409 si el vehículo tiene
+    reservas activas."""
     try:
         return service.dar_de_baja_temporal(db, vehiculo_id)
-    except (VehiculoNoEncontradoError, TransicionEstadoInvalidaError) as exc:
+    except (
+        VehiculoNoEncontradoError,
+        TransicionEstadoInvalidaError,
+        VehiculoConReservasActivasError,
+    ) as exc:
         raise _a_http(exc) from exc
 
 
@@ -91,10 +100,17 @@ def dar_de_baja_definitiva(
     db: Session = Depends(get_db),
     _admin: str = Depends(verificar_admin),
 ) -> VehiculoOut:
-    """FR-04: baja definitiva, desde 'activo' o 'baja_temporal'."""
+    """FR-04: baja definitiva, desde 'activo' o 'baja_temporal'.
+
+    FEAT-001e/FR-01/AC-02: también rechaza con 409 si el vehículo tiene
+    reservas activas."""
     try:
         return service.dar_de_baja_definitiva(db, vehiculo_id)
-    except (VehiculoNoEncontradoError, TransicionEstadoInvalidaError) as exc:
+    except (
+        VehiculoNoEncontradoError,
+        TransicionEstadoInvalidaError,
+        VehiculoConReservasActivasError,
+    ) as exc:
         raise _a_http(exc) from exc
 
 

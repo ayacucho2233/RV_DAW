@@ -71,6 +71,17 @@ def listar_solapadas_en_rango(
     return list(db.execute(stmt).scalars().all())
 
 
+def existe_activa_para_vehiculo(db: Session, vehiculo_id: int) -> bool:
+    """¿Existe alguna reserva con estado 'activa' para este vehículo,
+    sin calificador temporal (FR-01/AC-01/AC-02)? Un SELECT EXISTS,
+    no un listar_todas+filtrar en Python — evita traer filas de más."""
+    stmt = select(Reserva.id).where(
+        Reserva.vehiculo_id == vehiculo_id,
+        Reserva.estado == EstadoReserva.activa,
+    ).limit(1)
+    return db.execute(stmt).scalar_one_or_none() is not None
+
+
 def listar_todas(db: Session) -> list[Reserva]:
     """`SELECT * FROM reservas` sin filtros ni joins (FR-01/FR-02): respeta
     "un repository, una tabla" — el enriquecimiento con datos de

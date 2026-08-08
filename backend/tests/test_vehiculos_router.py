@@ -17,11 +17,14 @@ recarga: `get_db` debe conservar su identidad de objeto para que
 import base64
 import importlib
 import sys
+from datetime import datetime, timezone
 
 import bcrypt
 import pytest
 from fastapi.testclient import TestClient
 
+from app.features.reservas import service as reservas_service
+from app.features.reservas.schemas import ReservaCreate
 from app.features.vehiculos import service
 from app.features.vehiculos.schemas import VehiculoCreate
 from tests.conftest import REQUIRED_ENV
@@ -196,6 +199,60 @@ def test_baja_definitiva_200(app_client, auth_headers, db_session):
 
     assert resp.status_code == 200
     assert resp.json()["estado"] == "baja_definitiva"
+
+
+def test_patch_baja_temporal_con_reserva_activa_409(app_client, auth_headers, db_session):
+    """AC-01 (FEAT-001e), a nivel HTTP: un vehículo con una reserva activa
+    responde 409 con el mensaje de `VehiculoConReservasActivasError` en el
+    body, y el vehículo permanece activo."""
+    creado = service.crear_vehiculo(db_session, VehiculoCreate(patente="AA123BB", tipo="auto"))
+    reservas_service.crear_reserva(
+        db_session,
+        ReservaCreate(
+            nombre_empleado="Juan Perez",
+            legajo="1234",
+            licencia="B1",
+            vehiculo_id=creado.id,
+            fecha_inicio=datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
+            fecha_fin=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
+            destino="Rosario",
+        ),
+        ip_origen="10.0.0.1",
+    )
+
+    resp = app_client.patch(f"/vehiculos/{creado.id}/baja-temporal", headers=auth_headers)
+
+    assert resp.status_code == 409
+    assert (
+        resp.json()["detail"]
+        == f"El vehículo con id {creado.id} tiene reservas activas y no puede darse de baja."
+    )
+
+
+def test_patch_baja_definitiva_con_reserva_activa_409(app_client, auth_headers, db_session):
+    """AC-02 (FEAT-001e), a nivel HTTP: ídem para baja definitiva."""
+    creado = service.crear_vehiculo(db_session, VehiculoCreate(patente="AA123BB", tipo="auto"))
+    reservas_service.crear_reserva(
+        db_session,
+        ReservaCreate(
+            nombre_empleado="Juan Perez",
+            legajo="1234",
+            licencia="B1",
+            vehiculo_id=creado.id,
+            fecha_inicio=datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
+            fecha_fin=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
+            destino="Rosario",
+        ),
+        ip_origen="10.0.0.1",
+    )
+
+    resp = app_client.patch(f"/vehiculos/{creado.id}/baja-definitiva", headers=auth_headers)
+
+    assert resp.status_code == 409
+    assert (
+        resp.json()["detail"]
+        == f"El vehículo con id {creado.id} tiene reservas activas y no puede darse de baja."
+    )
 
 
 def test_reactivar_200(app_client, auth_headers, db_session):

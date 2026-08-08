@@ -7,22 +7,28 @@ validación defensiva de tipo (FR-10/FR-11). Nunca accede a la base
 directamente — todo pasa por `repository.py` (AGENTS.md: "Layer
 separation").
 
-`dar_de_baja_temporal`/`dar_de_baja_definitiva` NO verifican reservas
-activas en este ticket porque el modelo de reservas no existe todavía:
-FEAT-001b agrega esa validación sobre estos mismos métodos (ver PRD,
-sección "Out of Scope", y el spec, "Nota de dependencia" del Block 2). No es
-un gap de este bloque.
+`dar_de_baja_temporal`/`dar_de_baja_definitiva` (FEAT-001e/FR-01/AC-01/AC-02)
+además verifican que el vehículo no tenga reservas activas antes de mutar su
+estado. Importan `app.features.reservas.repository` en modo de solo lectura
+(dependencia cruzada D-06 del spec de FEAT-001e — ver "Nota de dependencia
+cruzada" en spec-FEAT-001e.md): la dirección opuesta
+(`reservas.service` → `vehiculos.repository`) ya existía desde FEAT-001c/D-01,
+así que el acoplamiento entre ambos features pasa a ser bidireccional, pero
+siempre de solo lectura y siempre a nivel repository (nunca service→service).
 """
 import logging
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.features.reservas import repository as reservas_repository
 from app.features.vehiculos import repository
 from app.features.vehiculos.exceptions import (
     PatenteYaExisteError,
     TipoInvalidoError,
     TransicionEstadoInvalidaError,
+    VehiculoConReservasActivasError,
+    VehiculoDomainError,
     VehiculoNoEncontradoError,
 )
 from app.features.vehiculos.models import EstadoVehiculo, TipoVehiculo, Vehiculo
@@ -89,31 +95,61 @@ def modificar_vehiculo(db: Session, vehiculo_id: int, data) -> Vehiculo:
 
 
 def dar_de_baja_temporal(db: Session, vehiculo_id: int) -> Vehiculo:
-    """FR-03: solo permitido desde el estado 'activo'."""
-    vehiculo = repository.obtener_por_id(db, vehiculo_id)
-    if vehiculo is None:
-        raise VehiculoNoEncontradoError(vehiculo_id)
+    """FR-03: solo permitido desde el estado 'activo'.
 
-    if vehiculo.estado != EstadoVehiculo.activo:
-        raise TransicionEstadoInvalidaError(vehiculo.estado, "baja_temporal")
+    FEAT-001e/FR-01/AC-01: además rechaza la baja si el vehículo tiene
+    reservas activas. `obtener_por_id_con_lock` (`SELECT ... FOR UPDATE`)
+    serializa esta operación con cualquier `reservas.service.crear_reserva`
+    concurrente sobre el mismo `vehiculo_id` (mitigación de R-01 del PRD).
+    Orden de validación: (1) existe → 404, (2) transición de estado válida →
+    409, (3) sin reservas activas → 409.
+    """
+    try:
+        vehiculo = repository.obtener_por_id_con_lock(db, vehiculo_id)
+        if vehiculo is None:
+            raise VehiculoNoEncontradoError(vehiculo_id)
 
-    vehiculo.estado = EstadoVehiculo.baja_temporal
-    vehiculo = repository.guardar(db, vehiculo)
+        if vehiculo.estado != EstadoVehiculo.activo:
+            raise TransicionEstadoInvalidaError(vehiculo.estado, "baja_temporal")
+
+        if reservas_repository.existe_activa_para_vehiculo(db, vehiculo_id):
+            raise VehiculoConReservasActivasError(vehiculo_id)
+
+        vehiculo.estado = EstadoVehiculo.baja_temporal
+        vehiculo = repository.guardar(db, vehiculo)
+    except VehiculoDomainError:
+        db.rollback()
+        _log_operacion("dar_de_baja_temporal", vehiculo_id, "rechazada")
+        raise
+
     _log_operacion("dar_de_baja_temporal", vehiculo.id, "ok")
     return vehiculo
 
 
 def dar_de_baja_definitiva(db: Session, vehiculo_id: int) -> Vehiculo:
-    """FR-04: permitido desde 'activo' o 'baja_temporal'."""
-    vehiculo = repository.obtener_por_id(db, vehiculo_id)
-    if vehiculo is None:
-        raise VehiculoNoEncontradoError(vehiculo_id)
+    """FR-04: permitido desde 'activo' o 'baja_temporal'.
 
-    if vehiculo.estado not in (EstadoVehiculo.activo, EstadoVehiculo.baja_temporal):
-        raise TransicionEstadoInvalidaError(vehiculo.estado, "baja_definitiva")
+    FEAT-001e/FR-01/AC-02: mismas reglas que `dar_de_baja_temporal` — lock,
+    rechazo por reservas activas, y rollback explícito en el camino de
+    error."""
+    try:
+        vehiculo = repository.obtener_por_id_con_lock(db, vehiculo_id)
+        if vehiculo is None:
+            raise VehiculoNoEncontradoError(vehiculo_id)
 
-    vehiculo.estado = EstadoVehiculo.baja_definitiva
-    vehiculo = repository.guardar(db, vehiculo)
+        if vehiculo.estado not in (EstadoVehiculo.activo, EstadoVehiculo.baja_temporal):
+            raise TransicionEstadoInvalidaError(vehiculo.estado, "baja_definitiva")
+
+        if reservas_repository.existe_activa_para_vehiculo(db, vehiculo_id):
+            raise VehiculoConReservasActivasError(vehiculo_id)
+
+        vehiculo.estado = EstadoVehiculo.baja_definitiva
+        vehiculo = repository.guardar(db, vehiculo)
+    except VehiculoDomainError:
+        db.rollback()
+        _log_operacion("dar_de_baja_definitiva", vehiculo_id, "rechazada")
+        raise
+
     _log_operacion("dar_de_baja_definitiva", vehiculo.id, "ok")
     return vehiculo
 

@@ -12,7 +12,6 @@ const MENSAJES_ERROR = {
   400: "Los datos ingresados no son válidos.",
   401: "La sesión expiró. Volvé a iniciar sesión.",
   404: "El vehículo no existe o ya fue eliminado.",
-  409: "La operación no es válida para el estado actual del vehículo.",
   429: "Demasiados intentos. Esperá unos minutos e intentá de nuevo.",
 };
 
