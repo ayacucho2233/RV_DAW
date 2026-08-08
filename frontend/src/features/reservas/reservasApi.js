@@ -67,3 +67,29 @@ export async function crearReserva(payload) {
     return propagarError(error);
   }
 }
+
+/**
+ * FR-01/FR-02: listado público de todas las reservas, opcionalmente
+ * filtrado por `periodo` (`"futuras"|"en_curso"|"pasadas"`). Solo agrega el
+ * query param cuando `periodo` no es `null`/`undefined` — sin filtro, trae
+ * todas (mismo criterio que documenta el spec de Block 3).
+ */
+export async function listarReservas(periodo) {
+  try {
+    const config = periodo != null ? { params: { periodo } } : undefined;
+    const { data } = await apiClient.get("/reservas", config);
+    return data;
+  } catch (error) {
+    return propagarError(error);
+  }
+}
+
+/** FR-03: cancela una reserva propia validando el `legajo` de quien la creó. */
+export async function cancelarReserva(id, legajo) {
+  try {
+    const { data } = await apiClient.patch(`/reservas/${id}/cancelar`, { legajo });
+    return data;
+  } catch (error) {
+    return propagarError(error);
+  }
+}

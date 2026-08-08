@@ -69,3 +69,24 @@ def listar_solapadas_en_rango(
         Reserva.fecha_fin > fecha_inicio,
     )
     return list(db.execute(stmt).scalars().all())
+
+
+def listar_todas(db: Session) -> list[Reserva]:
+    """`SELECT * FROM reservas` sin filtros ni joins (FR-01/FR-02): respeta
+    "un repository, una tabla" — el enriquecimiento con datos de
+    `vehiculos` se resuelve en `service.py`, no acá."""
+    return list(db.execute(select(Reserva)).scalars().all())
+
+
+def obtener_por_id(db: Session, reserva_id: int) -> Reserva | None:
+    return db.get(Reserva, reserva_id)
+
+
+def guardar(db: Session, reserva: Reserva) -> Reserva:
+    """Persiste cambios ya aplicados sobre una instancia existente (p. ej.
+    un cambio de `estado` al cancelar), mismo patrón que
+    `vehiculos_repository.guardar`."""
+    db.add(reserva)
+    db.commit()
+    db.refresh(reserva)
+    return reserva

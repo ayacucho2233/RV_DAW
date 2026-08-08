@@ -18,29 +18,39 @@ from sqlalchemy.orm import Session
 
 from app.features.reservas import repository
 from app.features.reservas.exceptions import (
+    LegajoNoCoincideError,
     ReservaDomainError,
+    ReservaNoEncontradaError,
     ReservaSolapadaError,
+    ReservaYaCanceladaError,
     VehiculoNoActivoError,
     VehiculoNoEncontradoError,
 )
-from app.features.reservas.models import Reserva
-from app.features.reservas.schemas import DisponibilidadOut, VehiculoPublico
+from app.features.reservas.models import EstadoReserva, Reserva
+from app.features.reservas.schemas import (
+    DisponibilidadOut,
+    FiltroPeriodoReserva,
+    ReservaListItem,
+    VehiculoPublico,
+)
 from app.features.vehiculos import repository as vehiculos_repository
 from app.features.vehiculos.models import EstadoVehiculo
 
 logger = logging.getLogger(__name__)
 
 
-def _log_operacion(vehiculo_id: int | None, legajo: str | None, resultado: str, ip_origen: str) -> None:
-    """Log de trazabilidad de `crear_reserva` (mitigación TM-C-04 del threat
-    model). Sin autenticación en este feature, es el único rastro disponible
-    para investigar abusos o disputas. **Nunca** debe recibir
-    `nombre_empleado` ni `licencia` — reduce la superficie de PII en los
-    logs a lo estrictamente necesario para trazabilidad operativa.
+def _log_operacion(
+    operacion: str, vehiculo_id: int | None, legajo: str | None, resultado: str, ip_origen: str
+) -> None:
+    """Log de trazabilidad de operaciones del feature (mitigación TM-C-04
+    del threat model). Sin autenticación en este feature, es el único
+    rastro disponible para investigar abusos o disputas. **Nunca** debe
+    recibir `nombre_empleado` ni `licencia` — reduce la superficie de PII en
+    los logs a lo estrictamente necesario para trazabilidad operativa.
     """
     logger.info(
         "operacion=%s vehiculo_id=%s legajo=%s resultado=%s ip_origen=%s timestamp=%s",
-        "crear_reserva",
+        operacion,
         vehiculo_id,
         legajo,
         resultado,
@@ -95,10 +105,10 @@ def crear_reserva(db: Session, data, ip_origen: str) -> Reserva:
         reserva = repository.crear(db, data)
     except ReservaDomainError:
         db.rollback()
-        _log_operacion(vehiculo_id, legajo, "rechazada", ip_origen)
+        _log_operacion("crear_reserva", vehiculo_id, legajo, "rechazada", ip_origen)
         raise
 
-    _log_operacion(vehiculo_id, legajo, "ok", ip_origen)
+    _log_operacion("crear_reserva", vehiculo_id, legajo, "ok", ip_origen)
     return reserva
 
 
@@ -120,3 +130,85 @@ def consultar_disponibilidad(
         )
         for v in vehiculos
     ]
+
+
+def listar_reservas(
+    db: Session, periodo: FiltroPeriodoReserva | None = None
+) -> list[ReservaListItem]:
+    """FR-01/FR-02: listado público de todas las reservas, enriquecido con
+    patente/tipo del vehículo asociado — combina `repository.listar_todas`
+    (solo tabla `reservas`) con `vehiculos_repository.listar` (ya existente,
+    solo lectura entre features, dependencia D-02 del PRD) por
+    `vehiculo_id` en Python, mismo patrón que `consultar_disponibilidad`.
+
+    Si `periodo` no es `None`, filtra en Python contra
+    `datetime.now(timezone.utc)`. El filtro es puramente temporal — NO
+    excluye reservas `cancelada` (AC-02 a AC-04 del PRD son criterios sobre
+    fechas, no sobre `estado`).
+    """
+    reservas = repository.listar_todas(db)
+    vehiculos_por_id = {v.id: v for v in vehiculos_repository.listar(db)}
+
+    if periodo is not None:
+        ahora = datetime.now(timezone.utc)
+        if periodo == "futuras":
+            reservas = [r for r in reservas if r.fecha_inicio > ahora]
+        elif periodo == "en_curso":
+            reservas = [r for r in reservas if r.fecha_inicio <= ahora <= r.fecha_fin]
+        elif periodo == "pasadas":
+            reservas = [r for r in reservas if r.fecha_fin < ahora]
+
+    return [
+        ReservaListItem(
+            id=r.id,
+            vehiculo_id=r.vehiculo_id,
+            nombre_empleado=r.nombre_empleado,
+            fecha_inicio=r.fecha_inicio,
+            fecha_fin=r.fecha_fin,
+            destino=r.destino,
+            estado=r.estado,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            patente=vehiculos_por_id[r.vehiculo_id].patente,
+            tipo=vehiculos_por_id[r.vehiculo_id].tipo,
+        )
+        for r in reservas
+        if r.vehiculo_id in vehiculos_por_id
+    ]
+
+
+def cancelar_reserva(db: Session, reserva_id: int, legajo: str, ip_origen: str) -> Reserva:
+    """FR-03: cancela una reserva propia, validando que el `legajo`
+    indicado coincida con el de la reserva (AC-06).
+
+    Orden de validación: (1) existe (`ReservaNoEncontradaError`, 404) → (2)
+    `estado == activa` (`ReservaYaCanceladaError`, 409 — decisión de diseño
+    confirmada en PLAN: no responde éxito de forma idempotente) → (3)
+    `legajo` coincide (`LegajoNoCoincideError`, 403, mensaje que no revela
+    el legajo real) → (4) muta `estado` a `cancelada` y persiste (AC-05: el
+    vehículo queda disponible para ese período porque
+    `listar_activas_solapadas_con_lock`/`listar_solapadas_en_rango` ya
+    filtran por `estado == activa`, no hace falta ningún paso adicional).
+    """
+    vehiculo_id = None
+    try:
+        reserva = repository.obtener_por_id(db, reserva_id)
+        if reserva is None:
+            raise ReservaNoEncontradaError(reserva_id)
+
+        vehiculo_id = reserva.vehiculo_id
+
+        if reserva.estado != EstadoReserva.activa:
+            raise ReservaYaCanceladaError(reserva_id)
+
+        if reserva.legajo != legajo:
+            raise LegajoNoCoincideError(reserva_id)
+
+        reserva.estado = EstadoReserva.cancelada
+        reserva = repository.guardar(db, reserva)
+    except ReservaDomainError:
+        _log_operacion("cancelar_reserva", vehiculo_id, legajo, "rechazada", ip_origen)
+        raise
+
+    _log_operacion("cancelar_reserva", reserva.vehiculo_id, legajo, "ok", ip_origen)
+    return reserva

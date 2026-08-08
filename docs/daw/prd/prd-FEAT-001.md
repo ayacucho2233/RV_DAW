@@ -12,8 +12,8 @@
 |---|---|---|---|---|
 | FEAT-001a | Gestión del pool de vehículos | prd-FEAT-001a.md | none | done (PR #1, se mergea cuando se apruebe) |
 | FEAT-001b | Reservas y disponibilidad de vehículos | prd-FEAT-001b.md | depends on FEAT-001a | split into c/d/e (ver nota abajo) |
-| FEAT-001c | Consulta y creación de reservas | prd-FEAT-001c.md | depends on FEAT-001a | active |
-| FEAT-001d | Listado, filtros y cancelación de reservas | prd-FEAT-001d.md | depends on FEAT-001c, FEAT-001a | pending |
+| FEAT-001c | Consulta y creación de reservas | prd-FEAT-001c.md | depends on FEAT-001a | done (PR #2, se mergea cuando se aprueben #1 y #2) |
+| FEAT-001d | Listado, filtros y cancelación de reservas | prd-FEAT-001d.md | depends on FEAT-001c, FEAT-001a | active |
 | FEAT-001e | Integración con ciclo de vida del vehículo | prd-FEAT-001e.md | depends on FEAT-001c, FEAT-001a, FEAT-001d | pending |
 
 ## Suggested implementation order
