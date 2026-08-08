@@ -1,0 +1,237 @@
+================================================================================
+ RESERVA DE VEHICULOS CORPORATIVOS - GUIA DE EJECUCION
+ Repositorio: ayacucho2233/RV_DAW
+================================================================================
+
+Este documento explica como levantar el proyecto completo (base de datos,
+backend y frontend) para probarlo localmente.
+
+--------------------------------------------------------------------------------
+1. QUE ES ESTE PROYECTO
+--------------------------------------------------------------------------------
+
+Sistema para que empleados de una empresa reserven vehiculos corporativos
+(autos y camionetas) sin necesidad de aprobacion previa, y para que un
+administrador gestione el pool de vehiculos (alta, modificacion, baja y
+reactivacion).
+
+Funcionalidades principales:
+  - Menu principal con 3 areas: Consultar, Gestionar reservas, Administrador.
+  - Consulta de vehiculos disponibles y alta de una reserva (sin login).
+  - Listado de reservas con filtro por periodo (futuras/en curso/pasadas) y
+    cancelacion por numero de legajo.
+  - Panel de administracion (con login) para gestionar el pool de vehiculos,
+    incluyendo el bloqueo de bajas si el vehiculo tiene reservas activas.
+
+Documentacion del proceso de desarrollo (metodologia DAW: PRD, spec, threat
+model, reportes de verificacion y de seguridad de cada feature) esta en
+docs/daw/. Si se quiere revisar como se definio y valido cada requerimiento,
+empezar por docs/daw/prd/prd-FEAT-001.md (indice del proyecto original).
+
+--------------------------------------------------------------------------------
+2. STACK Y REQUISITOS PREVIOS
+--------------------------------------------------------------------------------
+
+  - Python 3.11+ (probado con 3.14)
+  - Node.js 18+ y npm
+  - PostgreSQL 14+ corriendo localmente (o accesible por red)
+  - git
+
+--------------------------------------------------------------------------------
+3. CLONAR EL REPOSITORIO
+--------------------------------------------------------------------------------
+
+  git clone https://github.com/ayacucho2233/RV_DAW.git
+  cd RV_DAW
+
+--------------------------------------------------------------------------------
+4. BASE DE DATOS (PostgreSQL)
+--------------------------------------------------------------------------------
+
+Crear la base de datos y un usuario de aplicacion. Reemplazar la contrasena
+por una propia.
+
+  psql -U postgres -c "CREATE USER reserva_app WITH PASSWORD 'elegi-una-password';"
+  psql -U postgres -c "CREATE DATABASE reserva_vehiculos OWNER reserva_app;"
+
+Nota: si no se dispone de un servidor PostgreSQL con el usuario "postgres"
+accesible, cualquier base/usuario con permisos de CREATE TABLE sirve; solo
+hay que reflejar esos datos en DATABASE_URL en el paso 5.
+
+--------------------------------------------------------------------------------
+5. BACKEND (Python + FastAPI)
+--------------------------------------------------------------------------------
+
+  cd backend
+
+  # Crear entorno virtual e instalar dependencias
+  python -m venv venv
+  source venv/bin/activate        # Linux/Mac/WSL
+  venv\Scripts\activate           # Windows (cmd/PowerShell)
+
+  pip install -r requirements.txt
+
+  # Configurar variables de entorno
+  cp .env.example .env
+
+Editar backend/.env con estos 4 valores:
+
+  DATABASE_URL=postgresql+psycopg2://reserva_app:elegi-una-password@localhost:5432/reserva_vehiculos
+  ADMIN_USERNAME=admin
+  ADMIN_PASSWORD_HASH=<hash generado en el paso siguiente>
+  FRONTEND_ORIGIN=http://localhost:5173
+
+Generar el hash bcrypt de la contrasena del administrador (con el venv ya
+activado, desde la carpeta backend/). Se usa el paquete "bcrypt" directamente
+en vez de "passlib" porque en algunos entornos passlib.hash.bcrypt falla con
+un error de compatibilidad de version:
+
+  python -c "import bcrypt; print(bcrypt.hashpw(b'tu-password-de-admin', bcrypt.gensalt()).decode())"
+
+Copiar el resultado (empieza con "$2b$...") como valor de ADMIN_PASSWORD_HASH
+en el .env.
+
+ATAJO PARA PRUEBAS LOCALES: si no se quiere generar un hash propio, se puede
+usar este ejemplo ya calculado (usuario "admin", contrasena "admin123") --
+SOLO para desarrollo/correccion local, nunca para produccion:
+
+  ADMIN_USERNAME=admin
+  ADMIN_PASSWORD_HASH=$2b$12$OlOEdYsPEzhvIEPx0CqM3uN7SbzJyrmwMDWygpwOySHJCwCtUjNg2
+
+Con esto, el login del panel de administracion (paso 7) se hace con:
+  usuario: admin
+  contrasena: admin123
+
+Aplicar las migraciones (crea las tablas "vehiculos" y "reservas"):
+
+  alembic upgrade head
+
+Levantar el servidor:
+
+  uvicorn app.main:app --reload
+
+  La API queda en http://localhost:8000
+  Documentacion interactiva (Swagger) en http://localhost:8000/docs
+
+--------------------------------------------------------------------------------
+6. FRONTEND (React + Vite)
+--------------------------------------------------------------------------------
+
+En otra terminal:
+
+  cd frontend
+  npm install
+
+  cp .env.example .env
+
+Editar frontend/.env:
+
+  VITE_API_URL=http://localhost:8000
+
+Levantar el servidor de desarrollo:
+
+  npm run dev
+
+  La app queda en http://localhost:5173
+
+NOTA PARA USUARIOS DE WSL (Windows Subsystem for Linux): si el proyecto esta
+ubicado en una ruta de Windows montada (por ejemplo /mnt/c/...), el watcher
+de archivos de Vite puede no detectar cambios y mostrar una version vieja del
+codigo. Si eso ocurre, reiniciar el frontend forzando una relectura completa:
+
+  npx vite --host 0.0.0.0 --port 5173 --force
+
+--------------------------------------------------------------------------------
+7. USO DE LA APLICACION
+--------------------------------------------------------------------------------
+
+Al abrir http://localhost:5173 aparece el menu principal con 3 opciones:
+
+  - Consultar: ver el pool de vehiculos, consultar disponibilidad por fecha
+    y crear una reserva (sin login, cualquier empleado).
+  - Gestionar reservas: ver el listado de reservas, filtrar por periodo
+    (futuras/en curso/pasadas) y cancelar una reserva propia indicando el
+    numero de legajo con el que se creo.
+  - Administrador: login con las credenciales configuradas en el .env del
+    backend (usuario = ADMIN_USERNAME, contrasena = la que se uso para
+    generar ADMIN_PASSWORD_HASH -- "admin" / "admin123" si se uso el atajo
+    del paso 5). Desde ahi se gestiona el pool: alta, modificacion, baja
+    temporal/definitiva y reactivacion de vehiculos.
+
+El pool de vehiculos arranca vacio: para poder crear una reserva primero hay
+que entrar como administrador y cargar al menos un vehiculo (patente + tipo:
+auto o camioneta).
+
+--------------------------------------------------------------------------------
+8. CORRER LOS TESTS
+--------------------------------------------------------------------------------
+
+Backend (requiere una base de datos de test separada; ver
+backend/tests/conftest.py para la variable TEST_DATABASE_URL si se necesita
+apuntar a otra base):
+
+  cd backend
+  source venv/bin/activate
+  pytest -q
+
+Frontend:
+
+  cd frontend
+  npx vitest run
+
+Al momento de este commit, la suite completa pasa 106 tests de backend y 49
+de frontend (155 en total).
+
+--------------------------------------------------------------------------------
+9. ESTRUCTURA DEL PROYECTO
+--------------------------------------------------------------------------------
+
+  backend/
+    app/
+      core/            configuracion, base de datos, autenticacion admin
+      features/
+        vehiculos/     alta/baja/modificacion del pool (router, service,
+                        repository, schemas, exceptions)
+        reservas/       consulta, alta, listado, filtro y cancelacion de
+                        reservas
+    alembic/            migraciones de base de datos
+    tests/              tests de backend (pytest)
+
+  frontend/
+    src/
+      features/
+        vehiculos/      panel de administracion y login
+        reservas/       consulta publica, alta y listado de reservas
+        menu/           menu principal de navegacion
+      components/       iconos SVG reutilizables
+      api/               cliente HTTP centralizado
+      index.css          paleta de colores y estilos globales
+
+  docs/daw/              documentacion de todo el proceso de desarrollo:
+                          PRDs, specs tecnicas, threat models, reportes de
+                          seguridad (SAST) y de verificacion de cada feature.
+                          Utils para entender el "por que" de cada decision.
+
+  CHANGELOG.md            resumen de las funcionalidades agregadas por
+                          cada ticket (FEAT-001a/c/d/e, FEAT-002).
+
+--------------------------------------------------------------------------------
+10. PROBLEMAS FRECUENTES
+--------------------------------------------------------------------------------
+
+- "DATABASE_URL no esta seteada en el entorno" al correr alembic: las
+  variables del .env no se exportan solas al shell para Alembic. Exportarlas
+  antes de migrar, por ejemplo:
+    set -a; source .env; set +a; alembic upgrade head
+
+- Error de compatibilidad de passlib/bcrypt al generar el hash de admin: usar
+  el comando de bcrypt directo indicado en el paso 5 (no passlib.hash.bcrypt).
+
+- 401 al intentar loguearse como administrador: verificar que
+  ADMIN_PASSWORD_HASH en el .env corresponda exactamente a la contrasena que
+  se esta probando (se regenera con el comando del paso 5).
+
+- El frontend no refleja cambios de codigo (solo relevante si se edita el
+  proyecto, no para solo ejecutarlo): ver la nota de WSL en el paso 6.
+
+================================================================================
