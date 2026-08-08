@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+from app.features.vehiculos import repository as vehiculos_repository
 from app.features.vehiculos import service as vehiculos_service
 from app.features.vehiculos.models import EstadoVehiculo
 from app.features.vehiculos.schemas import VehiculoCreate
@@ -340,6 +341,48 @@ def test_get_reservas_periodo_invalido_422(app_client, db_session):
     resp = app_client.get("/reservas", params={"periodo": "invalido"})
 
     assert resp.status_code == 422
+
+
+# --- Block 2 de spec-FEAT-001e: reservas pasadas de vehículos dados de baja
+
+
+def test_get_reservas_incluye_reserva_de_vehiculo_dado_de_baja_200(app_client, db_session):
+    """AC-03/AC-04 a nivel HTTP: una reserva pasada de un vehículo en
+    `baja_temporal` o `baja_definitiva` sigue apareciendo en `GET /reservas`,
+    con `patente`/`tipo` resueltos correctamente. El vehículo se pasa a cada
+    estado mutando el modelo directamente (no vía los endpoints PATCH de
+    baja) para no acoplar este test a la validación de reservas activas de
+    Block 1 — acá solo importa el estado final del vehículo."""
+    v_temporal = _crear_vehiculo(db_session, patente="BT111BT", tipo="auto")
+    v_definitiva = _crear_vehiculo(db_session, patente="BD222BD", tipo="camioneta")
+
+    resp_temporal = app_client.post(
+        "/reservas", json=_reserva_payload_real(v_temporal.id, -10, -8)
+    )
+    assert resp_temporal.status_code == 201
+    resp_definitiva = app_client.post(
+        "/reservas", json=_reserva_payload_real(v_definitiva.id, -6, -4)
+    )
+    assert resp_definitiva.status_code == 201
+
+    vehiculo_temporal = vehiculos_repository.obtener_por_id(db_session, v_temporal.id)
+    vehiculo_temporal.estado = EstadoVehiculo.baja_temporal
+    vehiculos_repository.guardar(db_session, vehiculo_temporal)
+
+    vehiculo_definitiva = vehiculos_repository.obtener_por_id(db_session, v_definitiva.id)
+    vehiculo_definitiva.estado = EstadoVehiculo.baja_definitiva
+    vehiculos_repository.guardar(db_session, vehiculo_definitiva)
+
+    resp = app_client.get("/reservas", params={"periodo": "pasadas"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    por_vehiculo = {item["vehiculo_id"]: item for item in body}
+    assert set(por_vehiculo.keys()) == {v_temporal.id, v_definitiva.id}
+    assert por_vehiculo[v_temporal.id]["patente"] == "BT111BT"
+    assert por_vehiculo[v_temporal.id]["tipo"] == "auto"
+    assert por_vehiculo[v_definitiva.id]["patente"] == "BD222BD"
+    assert por_vehiculo[v_definitiva.id]["tipo"] == "camioneta"
 
 
 # --- Block 2: PATCH /reservas/{id}/cancelar ------------------------------

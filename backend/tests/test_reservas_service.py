@@ -538,6 +538,51 @@ def test_cancelar_reserva_loguea_operacion_sin_pii(db_session, caplog):
     assert not any("LICENCIA-SECRETA" in m for m in mensajes)
 
 
+# --- Block 2 de spec-FEAT-001e: reservas pasadas de vehículos dados de baja ---
+
+
+def test_listar_reservas_incluye_reserva_de_vehiculo_en_baja_temporal(db_session):
+    """AC-03: una reserva pasada (`fecha_fin` en el pasado) de un vehículo en
+    `baja_temporal` sigue apareciendo en `listar_reservas`, sin filtro y con
+    `periodo='pasadas'`. El vehículo se pasa a `baja_temporal` mutando el
+    modelo directamente (no vía `vehiculos_service.dar_de_baja_temporal`) para
+    no acoplar este test a la validación de reservas activas de Block 1 — acá
+    solo importa el estado final del vehículo, no cómo se llegó a él."""
+    vehiculo = _crear_vehiculo(db_session, patente="BT111BT", tipo="auto")
+    crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+    vehiculo.estado = EstadoVehiculo.baja_temporal
+    vehiculos_repository.guardar(db_session, vehiculo)
+
+    sin_filtro = listar_reservas(db_session)
+    pasadas = listar_reservas(db_session, periodo="pasadas")
+
+    assert {r.vehiculo_id for r in sin_filtro} == {vehiculo.id}
+    assert {r.vehiculo_id for r in pasadas} == {vehiculo.id}
+    assert pasadas[0].patente == "BT111BT"
+    assert pasadas[0].tipo.value == "auto"
+
+
+def test_listar_reservas_incluye_reserva_de_vehiculo_en_baja_definitiva(db_session):
+    """AC-04: ídem `test_listar_reservas_incluye_reserva_de_vehiculo_en_baja_temporal`
+    pero para `baja_definitiva`."""
+    vehiculo = _crear_vehiculo(db_session, patente="BD222BD", tipo="camioneta")
+    crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(-6), _dt_real(-3)), ip_origen=IP_TEST
+    )
+    vehiculo.estado = EstadoVehiculo.baja_definitiva
+    vehiculos_repository.guardar(db_session, vehiculo)
+
+    sin_filtro = listar_reservas(db_session)
+    pasadas = listar_reservas(db_session, periodo="pasadas")
+
+    assert {r.vehiculo_id for r in sin_filtro} == {vehiculo.id}
+    assert {r.vehiculo_id for r in pasadas} == {vehiculo.id}
+    assert pasadas[0].patente == "BD222BD"
+    assert pasadas[0].tipo.value == "camioneta"
+
+
 def test_cancelar_reserva_legajo_no_coincide_loguea_rechazada(db_session, caplog):
     """TM-D-03/TM-D-04: un rechazo por `LegajoNoCoincideError` (alguien
     probando legajos al azar para cancelar la reserva de otro) también debe
