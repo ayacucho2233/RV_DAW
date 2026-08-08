@@ -1,5 +1,5 @@
 ```
-/daw-validate-prd docs/daw/prd/prd-FEAT-001e.md — PASSED
+/daw-validate-prd /mnt/c/Users/fepgen/Proyecto/RV_DAW/docs/daw/prd/prd-FEAT-001e.md — PASSED
 ────────────────────────────────────────────────────────────────
   ✅ F-PRD-08: all mandatory sections present
   ✅ F-PRD-05: 2 FR, 1 NFR, 4 AC — unique, gapless

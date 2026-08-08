@@ -60,3 +60,13 @@ class VehiculoNoEncontradoError(VehiculoDomainError):
     def __init__(self, vehiculo_id: int):
         self.vehiculo_id = vehiculo_id
         super().__init__(f"No se encontró el vehículo con id {vehiculo_id}.")
+
+
+class VehiculoConReservasActivasError(VehiculoDomainError):
+    """El vehículo tiene reservas activas y no puede darse de baja (FR-01/AC-01/AC-02)."""
+
+    def __init__(self, vehiculo_id: int):
+        self.vehiculo_id = vehiculo_id
+        super().__init__(
+            f"El vehículo con id {vehiculo_id} tiene reservas activas y no puede darse de baja."
+        )

@@ -133,6 +133,27 @@ describe("VehiculosAdminPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/operación no es válida/i);
   });
 
+  it("muestra el mensaje específico de reservas activas en un 409, no el genérico anterior", async () => {
+    listarVehiculos.mockResolvedValueOnce([vehiculoActivo]);
+    const error = new Error(
+      "El vehículo con id 1 tiene reservas activas y no puede darse de baja.",
+    );
+    error.status = 409;
+    error.detail = "El vehículo con id 1 tiene reservas activas y no puede darse de baja.";
+    bajaTemporal.mockRejectedValueOnce(error);
+    renderPage();
+    const user = userEvent.setup();
+
+    await screen.findByText(/AB123CD/);
+    await user.click(screen.getByRole("button", { name: /baja temporal/i }));
+
+    const alerta = await screen.findByRole("alert");
+    expect(alerta).toHaveTextContent(
+      "El vehículo con id 1 tiene reservas activas y no puede darse de baja.",
+    );
+    expect(alerta).not.toHaveTextContent(/operación no es válida para el estado actual/i);
+  });
+
   it("una acción en curso sobre un vehículo no se ve afectada por otra acción distinta en curso sobre otro vehículo", async () => {
     listarVehiculos.mockResolvedValueOnce([vehiculoActivo, vehiculoEnBajaTemporal]);
 

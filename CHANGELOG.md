@@ -8,6 +8,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-001e** — Integración con el ciclo de vida del vehículo: dar de baja (temporal o
+  definitiva) un vehículo con reservas activas ahora se rechaza con 409, usando el mismo lock
+  (`SELECT ... FOR UPDATE`) que ya usa la creación de reservas para prevenir condiciones de
+  carrera. Las reservas pasadas de un vehículo dado de baja siguen visibles en el listado.
 - **FEAT-001d** — Listado, filtros y cancelación de reservas: endpoint público `GET /reservas`
   (filtro opcional por período `futuras`/`en_curso`/`pasadas`) y `PATCH /reservas/{id}/cancelar`
   (valida que el legajo coincida con el de la reserva), con rate limiting independiente por
