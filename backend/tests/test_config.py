@@ -37,7 +37,7 @@ def test_config_carga_variables_requeridas(monkeypatch: pytest.MonkeyPatch):
     config = _reload_config()
 
     assert config.settings.DATABASE_URL == REQUIRED_ENV["DATABASE_URL"]
-    assert config.settings.ADMIN_USERNAME == "valor-incorrecto-a-proposito"
+    assert config.settings.ADMIN_USERNAME == REQUIRED_ENV["ADMIN_USERNAME"]
     assert config.settings.ADMIN_PASSWORD_HASH == REQUIRED_ENV["ADMIN_PASSWORD_HASH"]
     assert config.settings.FRONTEND_ORIGIN == REQUIRED_ENV["FRONTEND_ORIGIN"]
 
