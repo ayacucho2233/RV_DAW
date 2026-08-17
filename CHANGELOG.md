@@ -27,3 +27,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - **FEAT-001a** — Gestión del pool de vehículos: alta, modificación, baja temporal/definitiva y
   reactivación de vehículos, protegidos con HTTP Basic para el administrador, y el panel de
   administración correspondiente en React (PR #1, en revisión).
+
+### Fixed
+
+- **FIX-001** — `test_config_falla_sin_database_url` no detectaba la ausencia real de
+  `DATABASE_URL`: `Settings` (pydantic-settings) seguía leyendo el valor desde `backend/.env`
+  aunque el test lo borrara de `os.environ`. Se agrega `_reload_config_sin_env_file()`, que
+  instancia `Settings` con `_env_file=None` para simular correctamente la ausencia de la
+  variable.
