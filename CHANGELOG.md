@@ -8,6 +8,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-004** — Consulta de reservas activas por patente: `GET /reservas/vehiculo/{patente}`
+  devuelve las reservas activas de un vehículo puntual (búsqueda case-insensitive), con panel de
+  búsqueda en el frontend independiente del listado general. De paso, cierra un hueco de FEAT-001a:
+  la unicidad de patente ahora es case-insensitive (índice único de base), no solo exacta.
 - **FEAT-003** — CI en GitHub Actions: workflow `.github/workflows/ci.yml` que en cada Pull Request
   instala dependencias, corre la suite de tests (pytest + vitest) y el linter (ruff + eslint) de
   backend y frontend en paralelo, contra un servicio PostgreSQL efímero para los tests del backend.
