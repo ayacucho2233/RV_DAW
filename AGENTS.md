@@ -38,6 +38,8 @@ Reserva por parte de los empleados de vehículos corporativos para usarlos en un
 | Frontend | React + Vite |
 | Backend | Python + FastAPI |
 | Base de datos | PostgreSQL |
+| Lint (frontend) | `npm run lint` (eslint) |
+| Lint (backend) | `ruff check .` (dentro de `backend/`, con el venv activado) |
 
 ---
 
