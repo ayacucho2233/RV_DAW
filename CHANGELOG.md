@@ -8,6 +8,9 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-003** — CI en GitHub Actions: workflow `.github/workflows/ci.yml` que en cada Pull Request
+  instala dependencias, corre la suite de tests (pytest + vitest) y el linter (ruff + eslint) de
+  backend y frontend en paralelo, contra un servicio PostgreSQL efímero para los tests del backend.
 - **FEAT-002** — Menú principal y rediseño visual del frontend: nueva pantalla de menú con
   navegación a las 3 áreas de la app (Administrador, Gestionar reservas, Consultar), botones
   "Volver al menú"/"Cerrar sesión", y una paleta de colores + set de íconos SVG consistente en
