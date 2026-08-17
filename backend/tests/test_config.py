@@ -20,6 +20,19 @@ def _reload_config():
     return importlib.import_module("app.core.config")
 
 
+def _reload_config_sin_env_file():
+    """Recarga app.core.config ignorando backend/.env.
+
+    A diferencia de `_reload_config`, instancia `Settings` con `_env_file=None`
+    para que la lectura dependa exclusivamente de `os.environ`: `Settings` usa
+    `SettingsConfigDict(env_file=".env")`, así que un `monkeypatch.delenv` por
+    sí solo no simula la ausencia real de la variable si `.env` sigue
+    proveyéndola en el filesystem.
+    """
+    config = _reload_config()
+    return config.Settings(_env_file=None)
+
+
 def test_config_carga_variables_requeridas(monkeypatch: pytest.MonkeyPatch):
     config = _reload_config()
 
@@ -36,6 +49,6 @@ def test_config_falla_sin_database_url(monkeypatch: pytest.MonkeyPatch):
     # Settings), no por cualquier otro motivo — así el test no puede pasar
     # "por accidente" antes de que exista la implementación.
     with pytest.raises(ValidationError) as exc_info:
-        _reload_config()
+        _reload_config_sin_env_file()
 
     assert "DATABASE_URL" in str(exc_info.value)
