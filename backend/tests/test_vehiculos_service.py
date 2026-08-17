@@ -412,6 +412,53 @@ def test_listar_vehiculos(db_session):
     assert {v.patente for v in resultado} == {"AA123BB", "CC456DD"}
 
 
+def test_obtener_por_patente_normalizada_encuentra_por_cualquier_casing(db_session):
+    """Block 1/FR-05: `obtener_por_patente_normalizada` es case-insensitive
+    — busca con un casing distinto al guardado y encuentra el mismo
+    vehículo."""
+    creado = service.crear_vehiculo(db_session, VehiculoCreate(patente="AbC123", tipo="auto"))
+
+    encontrado = repository.obtener_por_patente_normalizada(db_session, "ABC123")
+    assert encontrado is not None
+    assert encontrado.id == creado.id
+
+    encontrado_minusculas = repository.obtener_por_patente_normalizada(db_session, "abc123")
+    assert encontrado_minusculas is not None
+    assert encontrado_minusculas.id == creado.id
+
+
+def test_crear_vehiculo_rechaza_patente_duplicada_otro_casing(db_session):
+    """AC-05: alta con patente que ya existe en el pool en otro casing se
+    rechaza."""
+    service.crear_vehiculo(db_session, VehiculoCreate(patente="AA123BB", tipo="auto"))
+
+    with pytest.raises(PatenteYaExisteError):
+        service.crear_vehiculo(db_session, VehiculoCreate(patente="aa123bb", tipo="camioneta"))
+
+
+def test_modificar_vehiculo_rechaza_patente_duplicada_otro_casing(db_session):
+    """AC-06: modificar asignando una patente que ya existe en otro vehículo
+    en otro casing se rechaza."""
+    service.crear_vehiculo(db_session, VehiculoCreate(patente="AA111AA", tipo="auto"))
+    v2 = service.crear_vehiculo(db_session, VehiculoCreate(patente="BB222BB", tipo="camioneta"))
+
+    with pytest.raises(PatenteYaExisteError):
+        service.modificar_vehiculo(
+            db_session, v2.id, VehiculoUpdate(patente="aa111aa", tipo="camioneta")
+        )
+
+
+def test_crear_vehiculo_patente_distinta_sigue_funcionando(db_session):
+    """Regresión: una patente nueva, sin relación de casing con ninguna
+    existente, sigue creando el vehículo normalmente."""
+    service.crear_vehiculo(db_session, VehiculoCreate(patente="AA123BB", tipo="auto"))
+
+    creado = service.crear_vehiculo(db_session, VehiculoCreate(patente="ZZ999ZZ", tipo="camioneta"))
+
+    assert creado.id is not None
+    assert creado.patente == "ZZ999ZZ"
+
+
 def test_crear_vehiculo_loguea_operacion_sin_credenciales(db_session, caplog):
     """TM-04: cada escritura loguea INFO con la operación, sin filtrar
     credenciales (no aplica auth en este bloque, pero el log no debe

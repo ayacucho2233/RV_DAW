@@ -68,7 +68,7 @@ def crear_vehiculo(db: Session, data) -> Vehiculo:
     """FR-01: alta de un vehículo. Valida patente única (FR-08)."""
     _validar_tipo(data.tipo)
 
-    if repository.obtener_por_patente(db, data.patente) is not None:
+    if repository.obtener_por_patente_normalizada(db, data.patente) is not None:
         raise PatenteYaExisteError(data.patente)
 
     vehiculo = repository.crear(db, data)
@@ -85,7 +85,7 @@ def modificar_vehiculo(db: Session, vehiculo_id: int, data) -> Vehiculo:
     if vehiculo is None:
         raise VehiculoNoEncontradoError(vehiculo_id)
 
-    existente = repository.obtener_por_patente(db, data.patente)
+    existente = repository.obtener_por_patente_normalizada(db, data.patente)
     if existente is not None and existente.id != vehiculo_id:
         raise PatenteYaExisteError(data.patente)
 
