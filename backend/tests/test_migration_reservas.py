@@ -30,6 +30,7 @@ def _run_alembic(*args: str, database_url: str) -> subprocess.CompletedProcess:
         env=env,
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -114,33 +115,31 @@ def test_migracion_crea_tabla_reservas(test_database_url: str):
             ).scalar()
 
         # El CHECK de fecha_fin > fecha_inicio rechaza un rango invertido.
-        with pytest.raises(IntegrityError):
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO reservas "
-                        "(vehiculo_id, nombre_empleado, legajo, licencia, "
-                        "fecha_inicio, fecha_fin, destino) "
-                        "VALUES (:vid, 'Juan Perez', '123', 'B1', "
-                        "'2026-08-10T10:00:00+00:00', '2026-08-09T10:00:00+00:00', 'Rosario')"
-                    ),
-                    {"vid": vehiculo_id},
-                )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO reservas "
+                    "(vehiculo_id, nombre_empleado, legajo, licencia, "
+                    "fecha_inicio, fecha_fin, destino) "
+                    "VALUES (:vid, 'Juan Perez', '123', 'B1', "
+                    "'2026-08-10T10:00:00+00:00', '2026-08-09T10:00:00+00:00', 'Rosario')"
+                ),
+                {"vid": vehiculo_id},
+            )
 
         # El CHECK de estado rechaza un valor fuera del enum.
-        with pytest.raises(IntegrityError):
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO reservas "
-                        "(vehiculo_id, nombre_empleado, legajo, licencia, "
-                        "fecha_inicio, fecha_fin, destino, estado) "
-                        "VALUES (:vid, 'Juan Perez', '123', 'B1', "
-                        "'2026-08-09T10:00:00+00:00', '2026-08-10T10:00:00+00:00', "
-                        "'Rosario', 'pendiente')"
-                    ),
-                    {"vid": vehiculo_id},
-                )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO reservas "
+                    "(vehiculo_id, nombre_empleado, legajo, licencia, "
+                    "fecha_inicio, fecha_fin, destino, estado) "
+                    "VALUES (:vid, 'Juan Perez', '123', 'B1', "
+                    "'2026-08-09T10:00:00+00:00', '2026-08-10T10:00:00+00:00', "
+                    "'Rosario', 'pendiente')"
+                ),
+                {"vid": vehiculo_id},
+            )
 
         # Un INSERT válido debe funcionar (evidencia de que las constraints
         # anteriores no son falsos positivos que bloqueen el caso normal).
@@ -182,18 +181,17 @@ def test_migracion_reservas_requiere_vehiculo_existente(test_database_url: str):
 
     engine = sa.create_engine(test_database_url)
     try:
-        with pytest.raises(IntegrityError):
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO reservas "
-                        "(vehiculo_id, nombre_empleado, legajo, licencia, "
-                        "fecha_inicio, fecha_fin, destino) "
-                        "VALUES (:vid, 'Juan Perez', '123', 'B1', "
-                        "'2026-08-09T10:00:00+00:00', '2026-08-10T10:00:00+00:00', 'Rosario')"
-                    ),
-                    {"vid": 999999},
-                )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO reservas "
+                    "(vehiculo_id, nombre_empleado, legajo, licencia, "
+                    "fecha_inicio, fecha_fin, destino) "
+                    "VALUES (:vid, 'Juan Perez', '123', 'B1', "
+                    "'2026-08-09T10:00:00+00:00', '2026-08-10T10:00:00+00:00', 'Rosario')"
+                ),
+                {"vid": 999999},
+            )
     finally:
         engine.dispose()
 

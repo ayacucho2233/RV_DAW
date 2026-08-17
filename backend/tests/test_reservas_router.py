@@ -68,15 +68,15 @@ def _dt_iso(offset_hours: int) -> str:
 
 
 def _reserva_payload(vehiculo_id, inicio_h=0, fin_h=2, **overrides):
-    payload = dict(
-        nombre_empleado="Juan Perez",
-        legajo="1234",
-        licencia="B1",
-        vehiculo_id=vehiculo_id,
-        fecha_inicio=_dt_iso(inicio_h),
-        fecha_fin=_dt_iso(fin_h),
-        destino="Rosario",
-    )
+    payload = {
+        "nombre_empleado": "Juan Perez",
+        "legajo": "1234",
+        "licencia": "B1",
+        "vehiculo_id": vehiculo_id,
+        "fecha_inicio": _dt_iso(inicio_h),
+        "fecha_fin": _dt_iso(fin_h),
+        "destino": "Rosario",
+    }
     payload.update(overrides)
     return payload
 
@@ -92,15 +92,15 @@ def _dt_real_iso(offset_hours: float) -> str:
 def _reserva_payload_real(vehiculo_id, inicio_h, fin_h, **overrides):
     """Igual que `_reserva_payload`, pero con fechas relativas al momento
     real de ejecución (`_dt_real_iso`) en vez de la base fija 2026-09-01."""
-    payload = dict(
-        nombre_empleado="Juan Perez",
-        legajo="1234",
-        licencia="B1",
-        vehiculo_id=vehiculo_id,
-        fecha_inicio=_dt_real_iso(inicio_h),
-        fecha_fin=_dt_real_iso(fin_h),
-        destino="Rosario",
-    )
+    payload = {
+        "nombre_empleado": "Juan Perez",
+        "legajo": "1234",
+        "licencia": "B1",
+        "vehiculo_id": vehiculo_id,
+        "fecha_inicio": _dt_real_iso(inicio_h),
+        "fecha_fin": _dt_real_iso(fin_h),
+        "destino": "Rosario",
+    }
     payload.update(overrides)
     return payload
 

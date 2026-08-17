@@ -46,15 +46,15 @@ def _crear_vehiculo(db, patente="AA123BB", tipo="auto"):
 
 
 def _reserva_data(vehiculo_id, inicio, fin, **overrides):
-    base = dict(
-        nombre_empleado="Juan Perez",
-        legajo="1234",
-        licencia="B1",
-        vehiculo_id=vehiculo_id,
-        fecha_inicio=inicio,
-        fecha_fin=fin,
-        destino="Rosario",
-    )
+    base = {
+        "nombre_empleado": "Juan Perez",
+        "legajo": "1234",
+        "licencia": "B1",
+        "vehiculo_id": vehiculo_id,
+        "fecha_inicio": inicio,
+        "fecha_fin": fin,
+        "destino": "Rosario",
+    }
     base.update(overrides)
     return ReservaCreate(**base)
 
@@ -148,8 +148,10 @@ def test_reserva_create_rechaza_fecha_fin_menor_o_igual():
 
 def test_reserva_create_rechaza_fecha_naive():
     """TM-C-03: datetimes sin timezone se rechazan explícitamente."""
-    naive_inicio = datetime(2026, 9, 1, 10, 0)
-    naive_fin = datetime(2026, 9, 1, 12, 0)
+    # Naive a propósito: el test verifica que la app rechace datetimes sin
+    # timezone, así que agregarles tzinfo anularía lo que se está probando.
+    naive_inicio = datetime(2026, 9, 1, 10, 0)  # noqa: DTZ001
+    naive_fin = datetime(2026, 9, 1, 12, 0)  # noqa: DTZ001
 
     with pytest.raises(ValidationError):
         ReservaCreate(
@@ -218,7 +220,7 @@ def test_crear_reserva_concurrencia_solo_una_confirmada(test_database_url, monke
     el primero ya comiteó — viendo entonces la reserva ya creada y
     rechazando la propia por solapamiento.
     """
-    import app.features.reservas.models  # noqa: F401
+    import app.features.reservas.models
     import app.features.vehiculos.models  # noqa: F401
     from app.core.database import Base
 
@@ -595,9 +597,11 @@ def test_cancelar_reserva_legajo_no_coincide_loguea_rechazada(db_session, caplog
     )
     caplog.clear()
 
-    with caplog.at_level(logging.INFO, logger="app.features.reservas.service"):
-        with pytest.raises(LegajoNoCoincideError):
-            cancelar_reserva(db_session, reserva.id, legajo="9999", ip_origen=IP_TEST)
+    with (
+        caplog.at_level(logging.INFO, logger="app.features.reservas.service"),
+        pytest.raises(LegajoNoCoincideError),
+    ):
+        cancelar_reserva(db_session, reserva.id, legajo="9999", ip_origen=IP_TEST)
 
     mensajes = [r.getMessage() for r in caplog.records]
     assert any(

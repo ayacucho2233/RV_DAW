@@ -23,13 +23,6 @@ const reservaActiva = {
   tipo: "auto",
 };
 
-const reservaCancelada = {
-  ...reservaActiva,
-  id: 2,
-  nombre_empleado: "María Gómez",
-  estado: "cancelada",
-};
-
 function reservaCanceladaDesde(reserva) {
   return { ...reserva, estado: "cancelada" };
 }
