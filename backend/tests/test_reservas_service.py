@@ -30,6 +30,7 @@ from app.features.reservas.schemas import ReservaCreate
 from app.features.reservas.service import (
     cancelar_reserva,
     consultar_disponibilidad,
+    consultar_reservas_activas_por_patente,
     crear_reserva,
     listar_reservas,
     listar_vehiculos_pool,
@@ -612,3 +613,91 @@ def test_cancelar_reserva_legajo_no_coincide_loguea_rechazada(db_session, caplog
         and "rechazada" in m
         for m in mensajes
     )
+
+
+# --- Block 2 de spec-FEAT-004: consulta de reservas activas por patente ---
+
+
+def test_consultar_reservas_activas_por_patente_con_activas(db_session):
+    """AC-01: patente con reservas activas devuelve exactamente esas
+    reservas."""
+    vehiculo = _crear_vehiculo(db_session, patente="AC111AC", tipo="auto")
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+
+    resultado = consultar_reservas_activas_por_patente(db_session, "AC111AC")
+
+    assert len(resultado) == 1
+    assert resultado[0].id == reserva.id
+    assert resultado[0].vehiculo_id == vehiculo.id
+
+
+def test_consultar_reservas_activas_por_patente_sin_activas(db_session):
+    """AC-02: patente sin reservas activas devuelve una lista vacía, no un
+    error."""
+    _crear_vehiculo(db_session, patente="SA222SA", tipo="auto")
+
+    resultado = consultar_reservas_activas_por_patente(db_session, "SA222SA")
+
+    assert resultado == []
+
+
+def test_consultar_reservas_activas_por_patente_excluye_pasadas_y_canceladas(db_session):
+    """AC-02: una reserva pasada y otra cancelada (ambas fuera de la ventana
+    'activa') no aparecen en el resultado."""
+    vehiculo = _crear_vehiculo(db_session, patente="EX333EX", tipo="auto")
+    crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+    reserva_cancelada = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+    cancelar_reserva(db_session, reserva_cancelada.id, legajo="1234", ip_origen=IP_TEST)
+
+    resultado = consultar_reservas_activas_por_patente(db_session, "EX333EX")
+
+    assert resultado == []
+
+
+def test_consultar_reservas_activas_por_patente_incluye_campos_requeridos(db_session):
+    """AC-04: cada ítem trae nombre del empleado, fecha_inicio, fecha_fin y
+    destino."""
+    vehiculo = _crear_vehiculo(db_session, patente="CR444CR", tipo="auto")
+    crear_reserva(
+        db_session,
+        _reserva_data(
+            vehiculo.id, _dt_real(2), _dt_real(4), nombre_empleado="Ana Gomez", destino="Cordoba"
+        ),
+        ip_origen=IP_TEST,
+    )
+
+    resultado = consultar_reservas_activas_por_patente(db_session, "CR444CR")
+
+    assert len(resultado) == 1
+    item = resultado[0]
+    assert item.nombre_empleado == "Ana Gomez"
+    assert item.fecha_inicio is not None
+    assert item.fecha_fin is not None
+    assert item.destino == "Cordoba"
+
+
+def test_consultar_reservas_activas_patente_inexistente(db_session):
+    """AC-03: patente que no existe en el pool levanta
+    VehiculoNoEncontradoError."""
+    with pytest.raises(VehiculoNoEncontradoError):
+        consultar_reservas_activas_por_patente(db_session, "ZZ999ZZ")
+
+
+def test_consultar_reservas_activas_patente_case_insensitive(db_session):
+    """AC-01/AC-02 + FR-05: consultar con un casing distinto al guardado
+    igual encuentra el vehículo (usa Block 1)."""
+    vehiculo = _crear_vehiculo(db_session, patente="CI555CI", tipo="auto")
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+
+    resultado = consultar_reservas_activas_por_patente(db_session, "ci555ci")
+
+    assert len(resultado) == 1
+    assert resultado[0].id == reserva.id

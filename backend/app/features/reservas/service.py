@@ -177,6 +177,35 @@ def listar_reservas(
     ]
 
 
+def consultar_reservas_activas_por_patente(db: Session, patente: str) -> list[ReservaListItem]:
+    """FR-01/FR-02/FR-03 (Block 2 de FEAT-004): reservas activas de un
+    vehículo dado por patente (búsqueda case-insensitive, Block 1), o
+    `VehiculoNoEncontradoError` si la patente no existe en el pool."""
+    vehiculo = vehiculos_repository.obtener_por_patente_normalizada(db, patente)
+    if vehiculo is None:
+        raise VehiculoNoEncontradoError(patente)
+
+    ahora = datetime.now(timezone.utc)
+    reservas = repository.listar_activas_por_vehiculo(db, vehiculo.id, ahora)
+
+    return [
+        ReservaListItem(
+            id=r.id,
+            vehiculo_id=r.vehiculo_id,
+            nombre_empleado=r.nombre_empleado,
+            fecha_inicio=r.fecha_inicio,
+            fecha_fin=r.fecha_fin,
+            destino=r.destino,
+            estado=r.estado,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            patente=vehiculo.patente,
+            tipo=vehiculo.tipo,
+        )
+        for r in reservas
+    ]
+
+
 def cancelar_reserva(db: Session, reserva_id: int, legajo: str, ip_origen: str) -> Reserva:
     """FR-03: cancela una reserva propia, validando que el `legajo`
     indicado coincida con el de la reserva (AC-06).
