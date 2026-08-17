@@ -31,10 +31,7 @@ export function setUnauthorizedHandler(handler) {
 
 apiClient.interceptors.request.use((config) => {
   if (sesionActual) {
-    const token =
-      typeof btoa === "function"
-        ? btoa(`${sesionActual.username}:${sesionActual.password}`)
-        : Buffer.from(`${sesionActual.username}:${sesionActual.password}`).toString("base64");
+    const token = btoa(`${sesionActual.username}:${sesionActual.password}`);
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Basic ${token}`;
   }

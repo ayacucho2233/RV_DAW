@@ -28,6 +28,7 @@ def _run_alembic(*args: str, database_url: str) -> subprocess.CompletedProcess:
         env=env,
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -87,14 +88,13 @@ def test_migracion_crea_tabla_vehiculos(test_database_url: str):
                 ),
                 {"p": "AA123BB"},
             )
-        with pytest.raises(IntegrityError):
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'camioneta')"
-                    ),
-                    {"p": "AA123BB"},
-                )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'camioneta')"
+                ),
+                {"p": "AA123BB"},
+            )
 
         # CHECK de `tipo`/`estado` a nivel de DB (defensa en profundidad:
         # models.py declara `create_constraint=True` en el Enum, la
@@ -111,23 +111,21 @@ def test_migracion_crea_tabla_vehiculos(test_database_url: str):
             f"no se encontró un CHECK sobre 'estado' en la tabla; constraints: {check_constraints}"
         )
 
-        with pytest.raises(IntegrityError):
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'moto')"
-                    ),
-                    {"p": "ZZ999ZZ"},
-                )
-        with pytest.raises(IntegrityError):
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO vehiculos (patente, tipo, estado) "
-                        "VALUES (:p, 'auto', 'inexistente')"
-                    ),
-                    {"p": "ZZ999ZZ"},
-                )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'moto')"
+                ),
+                {"p": "ZZ999ZZ"},
+            )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO vehiculos (patente, tipo, estado) "
+                    "VALUES (:p, 'auto', 'inexistente')"
+                ),
+                {"p": "ZZ999ZZ"},
+            )
     finally:
         engine.dispose()
 

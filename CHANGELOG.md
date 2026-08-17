@@ -35,3 +35,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   aunque el test lo borrara de `os.environ`. Se agrega `_reload_config_sin_env_file()`, que
   instancia `Settings` con `_env_file=None` para simular correctamente la ausencia de la
   variable.
+- **FIX-003** — `ruff` (backend) y `eslint` (frontend) quedan configurados correctamente:
+  `backend/ruff.toml` reconoce el patrón de inyección de dependencias de FastAPI
+  (`Depends`/`Query`/`Path`/etc.) en vez de marcarlo como bug, y se desactiva la regla
+  `react-hooks/set-state-in-effect` de eslint por conflictuar con el patrón "fetch on mount"
+  ya establecido en el proyecto. Se corrigen además 24 hallazgos reales de estilo (imports sin
+  ordenar, `dict()` reescrito como literal, `with` anidados combinados, código muerto en
+  `client.js`, variables sin usar en tests), sin cambios de comportamiento.

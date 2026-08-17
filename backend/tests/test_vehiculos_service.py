@@ -41,15 +41,15 @@ def _dt(offset_hours: int = 0) -> datetime:
 
 
 def _reserva_data(vehiculo_id, inicio, fin, **overrides) -> ReservaCreate:
-    base = dict(
-        nombre_empleado="Juan Perez",
-        legajo="1234",
-        licencia="B1",
-        vehiculo_id=vehiculo_id,
-        fecha_inicio=inicio,
-        fecha_fin=fin,
-        destino="Rosario",
-    )
+    base = {
+        "nombre_empleado": "Juan Perez",
+        "legajo": "1234",
+        "licencia": "B1",
+        "vehiculo_id": vehiculo_id,
+        "fecha_inicio": inicio,
+        "fecha_fin": fin,
+        "destino": "Rosario",
+    }
     base.update(overrides)
     return ReservaCreate(**base)
 
@@ -303,7 +303,7 @@ def test_baja_vs_crear_reserva_concurrencia(test_database_url, monkeypatch):
     el lock funciona, el segundo hilo queda genuinamente bloqueado en
     Postgres en su propio `SELECT ... FOR UPDATE` hasta que el primero
     comitea, y entonces ve el estado ya actualizado por el primero."""
-    import app.features.reservas.models  # noqa: F401
+    import app.features.reservas.models
     import app.features.vehiculos.models  # noqa: F401
     from app.core.database import Base
     from app.features.vehiculos import repository as vehiculos_repository
