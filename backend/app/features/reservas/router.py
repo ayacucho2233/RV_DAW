@@ -51,6 +51,7 @@ from app.core.database import get_db
 from app.features.reservas import service
 from app.features.reservas.exceptions import (
     LegajoNoCoincideError,
+    PatenteFormatoInvalidoError,
     ReservaNoEncontradaError,
     ReservaSolapadaError,
     ReservaYaCanceladaError,
@@ -66,6 +67,7 @@ from app.features.reservas.schemas import (
     ReservaOut,
     VehiculoPublico,
 )
+from app.features.vehiculos.schemas import PATENTE_PATTERN
 
 router = APIRouter(prefix="/reservas", tags=["reservas"])
 
@@ -76,6 +78,7 @@ _MAPEO_ERRORES_HTTP = {
     ReservaNoEncontradaError: status.HTTP_404_NOT_FOUND,
     ReservaYaCanceladaError: status.HTTP_409_CONFLICT,
     LegajoNoCoincideError: status.HTTP_403_FORBIDDEN,
+    PatenteFormatoInvalidoError: status.HTTP_422_UNPROCESSABLE_ENTITY,
 }
 
 
@@ -176,7 +179,7 @@ def cancelar_reserva(
 @router.get("/vehiculo/{patente}", response_model=list[ReservaListItem])
 def consultar_reservas_por_patente(
     request: Request,
-    patente: str = Path(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+    patente: str = Path(..., min_length=1, max_length=10, pattern=PATENTE_PATTERN),
     db: Session = Depends(get_db),
 ) -> list[ReservaListItem]:
     """FR-01/FR-02/FR-03/FR-04 (Block 2 de FEAT-004): reservas activas de un
@@ -187,5 +190,5 @@ def consultar_reservas_por_patente(
     _aplicar_rate_limit(request, _LIMITE_LECTURA, "reservas-por-patente")
     try:
         return service.consultar_reservas_activas_por_patente(db, patente)
-    except VehiculoNoEncontradoError as exc:
+    except (VehiculoNoEncontradoError, PatenteFormatoInvalidoError) as exc:
         raise _a_http(exc) from exc
