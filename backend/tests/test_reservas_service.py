@@ -11,6 +11,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -20,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from app.features.reservas import repository
 from app.features.reservas.exceptions import (
     LegajoNoCoincideError,
+    PatenteFormatoInvalidoError,
     ReservaNoEncontradaError,
     ReservaSolapadaError,
     ReservaYaCanceladaError,
@@ -701,3 +703,19 @@ def test_consultar_reservas_activas_patente_case_insensitive(db_session):
 
     assert len(resultado) == 1
     assert resultado[0].id == reserva.id
+
+
+def test_consultar_reservas_activas_patente_formato_invalido(db_session):
+    """FIX-005, regresión A1: una patente con formato inválido (carácter no
+    alfanumérico) levanta PatenteFormatoInvalidoError SIN llegar a invocar
+    obtener_por_patente_normalizada (defensa en profundidad de la capa de
+    servicio, independiente de la validación de FastAPI en el router)."""
+    with (
+        patch(
+            "app.features.reservas.service.vehiculos_repository.obtener_por_patente_normalizada"
+        ) as mock_obtener,
+        pytest.raises(PatenteFormatoInvalidoError),
+    ):
+        consultar_reservas_activas_por_patente(db_session, "AB-123")
+
+    mock_obtener.assert_not_called()

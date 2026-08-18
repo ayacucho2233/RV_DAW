@@ -12,6 +12,7 @@ modo de solo lectura (dependencia D-01 del PRD): nunca escriben sobre las
 tablas de `vehiculos`.
 """
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.features.reservas import repository
 from app.features.reservas.exceptions import (
     LegajoNoCoincideError,
+    PatenteFormatoInvalidoError,
     ReservaDomainError,
     ReservaNoEncontradaError,
     ReservaSolapadaError,
@@ -35,6 +37,9 @@ from app.features.reservas.schemas import (
 )
 from app.features.vehiculos import repository as vehiculos_repository
 from app.features.vehiculos.models import EstadoVehiculo
+from app.features.vehiculos.schemas import PATENTE_PATTERN
+
+_PATENTE_REGEX = re.compile(PATENTE_PATTERN)
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +185,17 @@ def listar_reservas(
 def consultar_reservas_activas_por_patente(db: Session, patente: str) -> list[ReservaListItem]:
     """FR-01/FR-02/FR-03 (Block 2 de FEAT-004): reservas activas de un
     vehículo dado por patente (búsqueda case-insensitive, Block 1), o
-    `VehiculoNoEncontradoError` si la patente no existe en el pool."""
+    `VehiculoNoEncontradoError` si la patente no existe en el pool.
+
+    Valida el formato de `patente` de forma defensiva (FIX-005, hallazgo A)
+    antes de tocar la base: hoy el único caller es `router.py`, que ya
+    valida vía `Path(pattern=PATENTE_PATTERN)`, pero un caller interno
+    futuro que invoque esta función directo (sin pasar por FastAPI) no
+    tendría ninguna otra barrera de formato — mismo criterio que
+    `crear_vehiculo`/`modificar_vehiculo` en `vehiculos/service.py`."""
+    if not (1 <= len(patente) <= 10) or not _PATENTE_REGEX.match(patente):
+        raise PatenteFormatoInvalidoError(patente)
+
     vehiculo = vehiculos_repository.obtener_por_patente_normalizada(db, patente)
     if vehiculo is None:
         raise VehiculoNoEncontradoError(patente)

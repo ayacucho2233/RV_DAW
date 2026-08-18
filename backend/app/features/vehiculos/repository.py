@@ -61,10 +61,17 @@ def obtener_por_patente_normalizada(db: Session, patente: str) -> Vehiculo | Non
     para resolver una condición sobre `upper(x)` (FIX-004) — y `.limit(1)`
     — nunca `scalar_one_or_none()`, por la mitigación del threat model:
     aunque el índice único impida duplicados a futuro, esta query no debe
-    poder levantar `MultipleResultsFound` bajo ningún escenario."""
+    poder levantar `MultipleResultsFound` bajo ningún escenario.
+
+    `.limit(1)` por sí solo evita `MultipleResultsFound`, pero NO garantiza
+    determinismo entre llamadas si hubiera más de una fila candidata —
+    Postgres no promete ningún orden estable sin un `ORDER BY` explícito
+    (FIX-005, hallazgo B). El `.order_by(Vehiculo.id)` es lo que da el
+    determinismo real, mismo criterio que `obtener_por_id_con_lock`."""
     stmt = (
         select(Vehiculo)
         .where(func.lower(Vehiculo.patente) == patente.strip().lower())
+        .order_by(Vehiculo.id)
         .limit(1)
     )
     return db.execute(stmt).scalars().first()
