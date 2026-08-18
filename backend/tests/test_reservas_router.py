@@ -482,3 +482,62 @@ def test_patch_cancelar_rate_limit_429(app_client, db_session):
     vehiculo = _crear_vehiculo(db_session)
     resp_post = app_client.post("/reservas", json=_reserva_payload(vehiculo.id))
     assert resp_post.status_code == 201
+
+
+# --- Block 2 de spec-FEAT-004: GET /reservas/vehiculo/{patente} ----------
+
+
+def test_router_get_reservas_vehiculo_200(app_client, db_session):
+    """AC-01: patente existente con reservas activas devuelve 200 con el
+    shape de `ReservaListItem`."""
+    vehiculo = _crear_vehiculo(db_session, patente="GV111GV", tipo="auto")
+    resp_post = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, 2, 4)
+    )
+    assert resp_post.status_code == 201
+
+    resp = app_client.get("/reservas/vehiculo/GV111GV")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    item = body[0]
+    assert item["patente"] == "GV111GV"
+    assert item["vehiculo_id"] == vehiculo.id
+    assert item["destino"] == "Rosario"
+    assert "legajo" not in item
+    assert "licencia" not in item
+
+
+def test_router_get_reservas_vehiculo_404(app_client, db_session):
+    """AC-03: patente inexistente responde 404 con detail descriptivo,
+    mencionando la patente consultada (distingue de un 404 genérico de
+    ruta inexistente)."""
+    resp = app_client.get("/reservas/vehiculo/ZZ999ZZ")
+
+    assert resp.status_code == 404
+    assert "ZZ999ZZ" in resp.json()["detail"]
+
+
+def test_router_get_reservas_vehiculo_rate_limit(app_client, db_session):
+    """TM-C-02: máx. 60 consultas por IP por minuto sobre la clave
+    `"reservas-por-patente"`."""
+    vehiculo = _crear_vehiculo(db_session, patente="RL222RL", tipo="auto")
+
+    for _ in range(60):
+        resp = app_client.get(f"/reservas/vehiculo/{vehiculo.patente}")
+        assert resp.status_code == 200, resp.text
+
+    resp_bloqueado = app_client.get(f"/reservas/vehiculo/{vehiculo.patente}")
+
+    assert resp_bloqueado.status_code == 429
+
+
+def test_router_get_reservas_vehiculo_patente_invalida_422(app_client, db_session):
+    """`patente` con caracteres no alfanuméricos o de más de 10 caracteres
+    se rechaza con 422 antes de llegar a `service.py`."""
+    resp_no_alfanumerica = app_client.get("/reservas/vehiculo/AB-123!")
+    assert resp_no_alfanumerica.status_code == 422
+
+    resp_muy_larga = app_client.get("/reservas/vehiculo/ABCDEFGHIJK")
+    assert resp_muy_larga.status_code == 422

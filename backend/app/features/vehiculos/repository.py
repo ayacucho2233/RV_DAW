@@ -10,7 +10,7 @@ llegan a la base, la que pierde contra el `UNIQUE` constraint recibe el
 mismo error de dominio que el chequeo preventivo, nunca un `IntegrityError`
 crudo sin manejar.
 """
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -53,10 +53,18 @@ def obtener_por_id_con_lock(db: Session, vehiculo_id: int) -> Vehiculo | None:
     ).scalar_one_or_none()
 
 
-def obtener_por_patente(db: Session, patente: str) -> Vehiculo | None:
-    return db.execute(
-        select(Vehiculo).where(Vehiculo.patente == patente)
-    ).scalar_one_or_none()
+def obtener_por_patente_normalizada(db: Session, patente: str) -> Vehiculo | None:
+    """Búsqueda case-insensitive (FR-05). Usa func.upper() de ambos lados y
+    `.limit(1)` — nunca `scalar_one_or_none()`, por la mitigación del threat
+    model: aunque el índice único de la migración impida duplicados a
+    futuro, esta query no debe poder levantar `MultipleResultsFound` bajo
+    ningún escenario."""
+    stmt = (
+        select(Vehiculo)
+        .where(func.upper(Vehiculo.patente) == patente.strip().upper())
+        .limit(1)
+    )
+    return db.execute(stmt).scalars().first()
 
 
 def listar(db: Session) -> list[Vehiculo]:

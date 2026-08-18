@@ -1,7 +1,7 @@
 import apiClient from "../../api/client";
 
 /**
- * Capa de acceso a los 3 endpoints públicos de `/reservas` (contrato
+ * Capa de acceso a las 6 funciones públicas de `/reservas` (contrato
  * definido en Block 3 de la spec). A diferencia de `vehiculosApi.js`, NUNCA
  * pasa el header `Authorization`: estos endpoints son públicos por diseño
  * del PRD (sin autenticación de empleados), y `apiClient` (`client.js`) ya
@@ -88,6 +88,16 @@ export async function listarReservas(periodo) {
 export async function cancelarReserva(id, legajo) {
   try {
     const { data } = await apiClient.patch(`/reservas/${id}/cancelar`, { legajo });
+    return data;
+  } catch (error) {
+    return propagarError(error);
+  }
+}
+
+/** FR-01/FR-02/FR-03/FR-04: reservas activas de un vehículo dado por patente. */
+export async function consultarReservasActivasPorVehiculo(patente) {
+  try {
+    const { data } = await apiClient.get(`/reservas/vehiculo/${patente}`);
     return data;
   } catch (error) {
     return propagarError(error);

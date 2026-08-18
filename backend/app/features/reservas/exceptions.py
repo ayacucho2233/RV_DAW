@@ -15,11 +15,23 @@ class ReservaDomainError(Exception):
 
 
 class VehiculoNoEncontradoError(ReservaDomainError):
-    """No existe ningún vehículo con el `vehiculo_id` solicitado."""
+    """No existe ningún vehículo con el identificador solicitado (id o
+    patente).
 
-    def __init__(self, vehiculo_id: int):
-        self.vehiculo_id = vehiculo_id
-        super().__init__(f"No se encontró el vehículo con id {vehiculo_id}.")
+    El atributo se llama `identificador` (no `vehiculo_id`) a propósito —
+    recomendación del arch-auditor en PLAN de FEAT-004: reusar el nombre
+    `vehiculo_id` para un valor que puede ser un `int` o un `str` es una
+    trampa de mantenibilidad para un caller futuro que asuma el tipo por
+    el nombre.
+    """
+
+    def __init__(self, identificador: int | str):
+        self.identificador = identificador
+        if isinstance(identificador, str):
+            mensaje = f"No se encontró el vehículo con patente {identificador!r}."
+        else:
+            mensaje = f"No se encontró el vehículo con id {identificador}."
+        super().__init__(mensaje)
 
 
 class VehiculoNoActivoError(ReservaDomainError):

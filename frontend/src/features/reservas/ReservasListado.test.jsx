@@ -7,6 +7,7 @@ import { listarReservas, cancelarReserva } from "./reservasApi";
 vi.mock("./reservasApi", () => ({
   listarReservas: vi.fn(),
   cancelarReserva: vi.fn(),
+  consultarReservasActivasPorVehiculo: vi.fn(),
 }));
 
 const reservaActiva = {

@@ -1,7 +1,7 @@
 """Router HTTP del feature `reservas` (Block 3 de FEAT-001c; Block 2 de
 FEAT-001d agrega `GET /reservas` y `PATCH /reservas/{id}/cancelar`).
 
-Los 5 endpoints públicos del pool de reservas. Cada uno llama al método de
+Los 6 endpoints públicos del pool de reservas. Cada uno llama al método de
 `service.py` correspondiente dentro de un `try/except` que
 traduce las excepciones de dominio a HTTP según la tabla del spec — nunca
 accede a la base directamente (AGENTS.md: "Layer separation", el router
@@ -30,17 +30,18 @@ usado en `app.core.security.verificar_admin`. Al superarse el límite,
 `429 Too Many Requests` con el mismo `HTTPException` de status/mensaje.
 
 `POST /reservas` y `PATCH /reservas/{id}/cancelar`: máx. 10 mutaciones por
-IP por hora cada uno. `GET /reservas/vehiculos`, `GET /reservas/disponibilidad`
-y `GET /reservas`: máx. 60 consultas por IP por minuto cada uno — los 5
-endpoints cuentan de forma independiente entre sí (cada uno con su propia
-clave de contador: `"reservas-post"`, `"reservas-cancelar"`,
-`"reservas-vehiculos"`, `"reservas-disponibilidad"`, `"reservas-listado"`),
-no un único balde compartido, ya que el spec no exige compartirlo y así un
-abuso de uno no descuenta cupo del otro.
+IP por hora cada uno. `GET /reservas/vehiculos`, `GET /reservas/disponibilidad`,
+`GET /reservas` y `GET /reservas/vehiculo/{patente}`: máx. 60 consultas por
+IP por minuto cada uno — los 6 endpoints cuentan de forma independiente
+entre sí (cada uno con su propia clave de contador: `"reservas-post"`,
+`"reservas-cancelar"`, `"reservas-vehiculos"`, `"reservas-disponibilidad"`,
+`"reservas-listado"`, `"reservas-por-patente"`), no un único balde
+compartido, ya que el spec no exige compartirlo y así un abuso de uno no
+descuenta cupo del otro.
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from limits import parse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -169,4 +170,22 @@ def cancelar_reserva(
     try:
         return service.cancelar_reserva(db, reserva_id, data.legajo, ip_origen)
     except (ReservaNoEncontradaError, ReservaYaCanceladaError, LegajoNoCoincideError) as exc:
+        raise _a_http(exc) from exc
+
+
+@router.get("/vehiculo/{patente}", response_model=list[ReservaListItem])
+def consultar_reservas_por_patente(
+    request: Request,
+    patente: str = Path(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+    db: Session = Depends(get_db),
+) -> list[ReservaListItem]:
+    """FR-01/FR-02/FR-03/FR-04 (Block 2 de FEAT-004): reservas activas de un
+    vehículo por patente. Path `/vehiculo/{patente}` (singular),
+    deliberadamente distinto de `/vehiculos` (plural, ya existente, lista
+    todo el pool) — no colisiona a nivel de ruteo de FastAPI (segmentos
+    literales distintos en la segunda posición)."""
+    _aplicar_rate_limit(request, _LIMITE_LECTURA, "reservas-por-patente")
+    try:
+        return service.consultar_reservas_activas_por_patente(db, patente)
+    except VehiculoNoEncontradoError as exc:
         raise _a_http(exc) from exc

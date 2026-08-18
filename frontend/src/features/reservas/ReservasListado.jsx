@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listarReservas, cancelarReserva } from "./reservasApi";
+import ConsultaPorPatente from "./ConsultaPorPatente";
 
 const MENSAJES_ERROR = {
   403: "El legajo indicado no coincide con el de la reserva.",
@@ -24,7 +25,9 @@ function formatFecha(valorIso) {
 
 /**
  * Listado público de reservas (FR-01/FR-02), con filtro opcional por
- * período y cancelación de reservas propias (FR-03/AC-06). Al montar pide
+ * período y cancelación de reservas propias (FR-03/AC-06). También aloja,
+ * por encima del listado, el panel independiente `<ConsultaPorPatente />`
+ * (FR-04, Block 3), desacoplado de este estado. Al montar pide
  * `GET /reservas` sin filtro (`periodo` inicial `""` → `undefined`); el
  * `<select>` de período dispara una nueva consulta al cambiar.
  *
@@ -97,6 +100,8 @@ export default function ReservasListado() {
 
   return (
     <div>
+      <ConsultaPorPatente />
+
       <h1>Reservas</h1>
 
       <label htmlFor="periodo">Período</label>

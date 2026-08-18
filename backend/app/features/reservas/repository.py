@@ -82,6 +82,25 @@ def existe_activa_para_vehiculo(db: Session, vehiculo_id: int) -> bool:
     return db.execute(stmt).scalar_one_or_none() is not None
 
 
+def listar_activas_por_vehiculo(
+    db: Session, vehiculo_id: int, ahora: datetime
+) -> list[Reserva]:
+    """Reservas 'activas' de un vehículo puntual (FR-02, Block 2 de
+    FEAT-004): estado == activa y no finalizadas (fecha_fin >= ahora) —
+    mismo criterio de 'reserva activa' de FEAT-001c, sin FOR UPDATE (solo
+    lectura, no participa de ninguna escritura)."""
+    stmt = (
+        select(Reserva)
+        .where(
+            Reserva.vehiculo_id == vehiculo_id,
+            Reserva.estado == EstadoReserva.activa,
+            Reserva.fecha_fin >= ahora,
+        )
+        .order_by(Reserva.fecha_inicio)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
 def listar_todas(db: Session) -> list[Reserva]:
     """`SELECT * FROM reservas` sin filtros ni joins (FR-01/FR-02): respeta
     "un repository, una tabla" — el enriquecimiento con datos de
