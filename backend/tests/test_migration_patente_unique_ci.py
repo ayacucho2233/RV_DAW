@@ -19,7 +19,9 @@ import sys
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
 
+from app.features.vehiculos import repository as vehiculos_repository
 from tests.conftest import REQUIRED_ENV
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -97,3 +99,80 @@ def test_indice_unico_case_insensitive_a_nivel_db(test_database_url: str):
         assert "vehiculos" not in inspector.get_table_names()
     finally:
         engine.dispose()
+
+
+def test_obtener_por_patente_normalizada_usa_el_indice_lower(test_database_url: str):
+    """FIX-004: `obtener_por_patente_normalizada` debe poder usar el índice
+    único funcional que crea la migración 0003 (sobre `lower(patente)`).
+
+    Antes del fix, la query comparaba con `func.upper(patente)` — una
+    expresión distinta a `lower(patente)` para el planner de Postgres, que
+    no puede usar un índice funcional sobre una expresión para resolver una
+    condición sobre otra. El resultado seguía siendo correcto (ambos lados
+    de la comparación usaban `upper()`), pero cada búsqueda por patente
+    —incluida la de `crear_vehiculo`/`modificar_vehiculo`— hacía un
+    `Seq Scan` en vez de un `Index Scan`, contradiciendo NFR-01 del PRD de
+    FEAT-004 ("lookups indexados, O(log n)").
+
+    Captura, vía el evento `before_cursor_execute`, el SQL exacto que
+    SQLAlchemy manda a Postgres al llamar la función real (no una query
+    reconstruida a mano en el test), y le antepone `EXPLAIN` para confirmar
+    que el plan usa `ix_vehiculos_patente_lower_unique`.
+    """
+    _run_alembic("downgrade", "base", database_url=test_database_url)
+    result = _run_alembic("upgrade", "head", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade head falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'auto')"),
+                {"p": "ABC123"},
+            )
+
+        captured: dict = {}
+
+        def _capturar(conn, cursor, statement, parameters, context, executemany):
+            captured["statement"] = statement
+            captured["parameters"] = parameters
+
+        sa.event.listen(engine, "before_cursor_execute", _capturar)
+        try:
+            session_factory = sessionmaker(bind=engine)
+            session = session_factory()
+            try:
+                vehiculo = vehiculos_repository.obtener_por_patente_normalizada(
+                    session, "abc123"
+                )
+            finally:
+                session.close()
+        finally:
+            sa.event.remove(engine, "before_cursor_execute", _capturar)
+
+        assert vehiculo is not None
+        assert "statement" in captured, "no se capturó ninguna query"
+
+        raw_conn = engine.raw_connection()
+        try:
+            cursor = raw_conn.cursor()
+            cursor.execute(f"EXPLAIN {captured['statement']}", captured["parameters"])
+            plan_text = "\n".join(row[0] for row in cursor.fetchall())
+        finally:
+            raw_conn.close()
+
+        assert "ix_vehiculos_patente_lower_unique" in plan_text, (
+            "la query de obtener_por_patente_normalizada no usa el índice único "
+            f"funcional. Plan real:\n{plan_text}"
+        )
+        assert "Seq Scan" not in plan_text, f"plan real:\n{plan_text}"
+    finally:
+        engine.dispose()
+
+    downgrade_result = _run_alembic("downgrade", "base", database_url=test_database_url)
+    assert downgrade_result.returncode == 0, (
+        f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
+        f"stderr: {downgrade_result.stderr}"
+    )
