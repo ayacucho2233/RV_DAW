@@ -37,6 +37,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Fixed
 
+- **FIX-004** — `obtener_por_patente_normalizada` comparaba con `func.upper()`, pero el índice
+  único de la migración de FEAT-004 está construido sobre `lower(patente)` — Postgres no usaba ese
+  índice (confirmado con `EXPLAIN`: `Seq Scan` en vez de `Index Scan`), afectando cada alta,
+  modificación y consulta por patente. El resultado ya era correcto; ahora también está indexado.
 - **FIX-001** — `test_config_falla_sin_database_url` no detectaba la ausencia real de
   `DATABASE_URL`: `Settings` (pydantic-settings) seguía leyendo el valor desde `backend/.env`
   aunque el test lo borrara de `os.environ`. Se agrega `_reload_config_sin_env_file()`, que

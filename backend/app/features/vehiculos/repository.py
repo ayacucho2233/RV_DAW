@@ -54,14 +54,17 @@ def obtener_por_id_con_lock(db: Session, vehiculo_id: int) -> Vehiculo | None:
 
 
 def obtener_por_patente_normalizada(db: Session, patente: str) -> Vehiculo | None:
-    """Búsqueda case-insensitive (FR-05). Usa func.upper() de ambos lados y
-    `.limit(1)` — nunca `scalar_one_or_none()`, por la mitigación del threat
-    model: aunque el índice único de la migración impida duplicados a
-    futuro, esta query no debe poder levantar `MultipleResultsFound` bajo
-    ningún escenario."""
+    """Búsqueda case-insensitive (FR-05). Usa func.lower() de ambos lados —
+    para que la expresión de la query coincida con la del índice único
+    funcional `ix_vehiculos_patente_lower_unique` (migración 0003, sobre
+    `lower(patente)`); Postgres no usa un índice funcional sobre `lower(x)`
+    para resolver una condición sobre `upper(x)` (FIX-004) — y `.limit(1)`
+    — nunca `scalar_one_or_none()`, por la mitigación del threat model:
+    aunque el índice único impida duplicados a futuro, esta query no debe
+    poder levantar `MultipleResultsFound` bajo ningún escenario."""
     stmt = (
         select(Vehiculo)
-        .where(func.upper(Vehiculo.patente) == patente.strip().upper())
+        .where(func.lower(Vehiculo.patente) == patente.strip().lower())
         .limit(1)
     )
     return db.execute(stmt).scalars().first()
