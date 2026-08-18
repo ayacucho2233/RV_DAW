@@ -37,6 +37,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Fixed
 
+- **FIX-005** — Hardening de 3 hallazgos de la review de FEAT-004, ninguno bloqueante:
+  `consultar_reservas_activas_por_patente` ahora valida el formato de patente en el service (no
+  solo en el router), `obtener_por_patente_normalizada` agrega `ORDER BY vehiculos.id` para ser
+  realmente determinística (no solo evitar `MultipleResultsFound`), y la migración
+  `0003_patente_unique_case_insensitive` pre-chequea duplicados existentes antes de crear el
+  índice único, fallando con un mensaje claro en vez del error crudo de Postgres.
 - **FIX-004** — `obtener_por_patente_normalizada` comparaba con `func.upper()`, pero el índice
   único de la migración de FEAT-004 está construido sobre `lower(patente)` — Postgres no usaba ese
   índice (confirmado con `EXPLAIN`: `Seq Scan` en vez de `Index Scan`), afectando cada alta,
