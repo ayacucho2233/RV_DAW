@@ -8,6 +8,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-005** — Estado `caducada` para reservas activas vencidas: `POST /reservas/caducar-vencidas`
+  transiciona en un `UPDATE` masivo toda reserva `activa` con `fecha_fin` ya pasada, disparado
+  automáticamente por el frontend una sola vez al cargar la página. Equivalente a `cancelada`
+  para toda la lógica existente (solapamiento, disponibilidad, baja de vehículo, cancelación) sin
+  tocar ese código — queda excluida por construcción, igual que `cancelada`.
 - **FEAT-004** — Consulta de reservas activas por patente: `GET /reservas/vehiculo/{patente}`
   devuelve las reservas activas de un vehículo puntual (búsqueda case-insensitive), con panel de
   búsqueda en el frontend independiente del listado general. De paso, cierra un hueco de FEAT-001a:
