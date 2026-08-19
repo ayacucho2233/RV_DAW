@@ -97,6 +97,14 @@ class DisponibilidadOut(BaseModel):
     disponible: bool
 
 
+class CaducarVencidasOut(BaseModel):
+    """Respuesta de `POST /reservas/caducar-vencidas` (Block 3 de
+    FEAT-005): cantidad de reservas transicionadas de `activa` a
+    `caducada` en el sweep."""
+
+    caducadas: int
+
+
 class CancelarReservaRequest(BaseModel):
     """Payload de cancelación de una reserva propia (FR-03/AC-06)."""
 
