@@ -176,3 +176,119 @@ def test_obtener_por_patente_normalizada_usa_el_indice_lower(test_database_url: 
         f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
         f"stderr: {downgrade_result.stderr}"
     )
+
+
+def test_obtener_por_patente_normalizada_usa_order_by_id(test_database_url: str):
+    """FIX-005, regresión B1: la query de `obtener_por_patente_normalizada`
+    incluye `ORDER BY vehiculos.id` — `.limit(1)` por sí solo no garantiza
+    determinismo entre llamadas si hubiera más de una fila candidata.
+
+    Se para en la revisión 0002 (sin el índice único todavía) a propósito:
+    es el único estado donde pueden coexistir en la tabla dos filas cuyas
+    patentes difieren solo en casing, que es el escenario que hace visible
+    la falta de `ORDER BY`. Inspecciona el SQL COMPILADO capturado vía
+    `before_cursor_execute` (no solo el resultado devuelto) — un resultado
+    que "por casualidad" coincide no prueba determinismo real.
+    """
+    _run_alembic("downgrade", "base", database_url=test_database_url)
+    result = _run_alembic("upgrade", "0002", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade 0002 falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'auto')"),
+                {"p": "AbC123"},
+            )
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'camioneta')"),
+                {"p": "ABC123"},
+            )
+
+        captured: dict = {}
+
+        def _capturar(conn, cursor, statement, parameters, context, executemany):
+            captured["statement"] = statement
+
+        sa.event.listen(engine, "before_cursor_execute", _capturar)
+        try:
+            session_factory = sessionmaker(bind=engine)
+            session = session_factory()
+            try:
+                vehiculo = vehiculos_repository.obtener_por_patente_normalizada(
+                    session, "abc123"
+                )
+            finally:
+                session.close()
+        finally:
+            sa.event.remove(engine, "before_cursor_execute", _capturar)
+
+        assert vehiculo is not None
+        assert "statement" in captured, "no se capturó ninguna query"
+        assert "ORDER BY vehiculos.id" in captured["statement"], (
+            f"la query no ordena por id, no es determinística: {captured['statement']}"
+        )
+    finally:
+        engine.dispose()
+
+    downgrade_result = _run_alembic("downgrade", "base", database_url=test_database_url)
+    assert downgrade_result.returncode == 0, (
+        f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
+        f"stderr: {downgrade_result.stderr}"
+    )
+
+
+def test_migracion_0003_falla_con_mensaje_claro_si_hay_duplicados(test_database_url: str):
+    """FIX-005, regresión C1: si ya existen en la tabla dos filas con la
+    misma patente en distinto casing, `alembic upgrade head` (0002 -> 0003)
+    falla con un `RuntimeError` de Python que menciona las patentes en
+    conflicto — no con el error crudo de Postgres
+    (`duplicate key value violates unique constraint`) sin contexto."""
+    _run_alembic("downgrade", "base", database_url=test_database_url)
+    result = _run_alembic("upgrade", "0002", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade 0002 falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'auto')"),
+                {"p": "DuP123"},
+            )
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'camioneta')"),
+                {"p": "DUP123"},
+            )
+    finally:
+        engine.dispose()
+
+    result_head = _run_alembic("upgrade", "head", database_url=test_database_url)
+    assert result_head.returncode != 0, (
+        "se esperaba que la migración 0003 fallara con duplicados existentes"
+    )
+    salida = (result_head.stdout + result_head.stderr).lower()
+    assert "duplicate key value" not in salida, (
+        "la migración dejó pasar el error crudo de Postgres en vez del RuntimeError "
+        f"con contexto.\nstdout: {result_head.stdout}\nstderr: {result_head.stderr}"
+    )
+    assert "runtimeerror" in salida, (
+        f"no se encontró el RuntimeError esperado.\nstdout: {result_head.stdout}\n"
+        f"stderr: {result_head.stderr}"
+    )
+    assert "dup123" in salida, (
+        f"el mensaje no menciona la patente en conflicto.\nstdout: {result_head.stdout}\n"
+        f"stderr: {result_head.stderr}"
+    )
+
+    # Limpieza: vuelve a un estado limpio para no dejar la base a mitad de
+    # una migración fallida entre corridas de test.
+    downgrade_result = _run_alembic("downgrade", "base", database_url=test_database_url)
+    assert downgrade_result.returncode == 0, (
+        f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
+        f"stderr: {downgrade_result.stderr}"
+    )

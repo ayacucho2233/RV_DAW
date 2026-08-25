@@ -42,12 +42,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Fixed
 
-- **FIX-007** — La clasificación temporal de una reserva (`futuras`/`en_curso`/`pasadas`, FEAT-001d)
-  vivía como condicionales sueltos dentro de `listar_reservas`, sin forma de invocarla ni testearla
-  de forma aislada. Se extrae a `clasificar_periodo_reserva`, sin cambio de comportamiento
-  (confirmado por los 196 tests existentes sin modificar). De paso se agrega `evals/run.py`: un
-  harness sin dependencias que corre `evals/casos.json` contra esa función y falla el CI si el
-  porcentaje de aciertos baja de 80%.
+- **FIX-005** — Hardening de 3 hallazgos de la review de FEAT-004, ninguno bloqueante:
+  `consultar_reservas_activas_por_patente` ahora valida el formato de patente en el service (no
+  solo en el router), `obtener_por_patente_normalizada` agrega `ORDER BY vehiculos.id` para ser
+  realmente determinística (no solo evitar `MultipleResultsFound`), y la migración
+  `0003_patente_unique_case_insensitive` pre-chequea duplicados existentes antes de crear el
+  índice único, fallando con un mensaje claro en vez del error crudo de Postgres.
 - **FIX-004** — `obtener_por_patente_normalizada` comparaba con `func.upper()`, pero el índice
   único de la migración de FEAT-004 está construido sobre `lower(patente)` — Postgres no usaba ese
   índice (confirmado con `EXPLAIN`: `Seq Scan` en vez de `Index Scan`), afectando cada alta,

@@ -34,6 +34,20 @@ class VehiculoNoEncontradoError(ReservaDomainError):
         super().__init__(mensaje)
 
 
+class PatenteFormatoInvalidoError(ReservaDomainError):
+    """`patente` no matchea `PATENTE_PATTERN` (FIX-005, hallazgo A).
+
+    Excepción dedicada, no una reutilización de `VehiculoNoEncontradoError`:
+    "formato inválido" y "no existe" son fallos distintos — mismo criterio
+    que `vehiculos/exceptions.py::TipoInvalidoError` frente a un caller
+    interno que no pasó por la validación de Pydantic.
+    """
+
+    def __init__(self, patente: str):
+        self.patente = patente
+        super().__init__(f"Formato de patente inválido: {patente!r}.")
+
+
 class VehiculoNoActivoError(ReservaDomainError):
     """El vehículo existe pero no está en estado `activo` (FR-05/AC-08).
 

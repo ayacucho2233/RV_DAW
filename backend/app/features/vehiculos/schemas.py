@@ -17,12 +17,18 @@ from app.features.vehiculos.models import EstadoVehiculo, TipoVehiculo
 
 TipoVehiculoLiteral = Literal["auto", "camioneta"]
 
+PATENTE_PATTERN = r"^[A-Za-z0-9]+$"
+"""Fuente de verdad del formato de patente (FIX-005): alfanumérica, sin
+espacios ni caracteres especiales. Reusada por `reservas/router.py`
+(`Path(pattern=...)`) y `reservas/service.py` (validación defensiva de
+`consultar_reservas_activas_por_patente`) para no duplicar el literal."""
+
 
 class VehiculoBase(BaseModel):
     # Alfanumérica, sin espacios ni caracteres especiales (aclaración de
     # negocio posterior a la spec escrita, que solo exigía 1-10 caracteres
     # no vacíos).
-    patente: str = Field(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$")
+    patente: str = Field(..., min_length=1, max_length=10, pattern=PATENTE_PATTERN)
     tipo: TipoVehiculoLiteral
 
 
