@@ -541,3 +541,105 @@ def test_router_get_reservas_vehiculo_patente_invalida_422(app_client, db_sessio
 
     resp_muy_larga = app_client.get("/reservas/vehiculo/ABCDEFGHIJK")
     assert resp_muy_larga.status_code == 422
+
+
+# --- Block 3 de spec-FEAT-005: POST /reservas/caducar-vencidas -----------
+
+
+def test_post_caducar_vencidas_devuelve_200_y_cantidad_correcta(app_client, db_session):
+    """AC-01: una reserva `activa` vencida pasa a `caducada` y el endpoint
+    devuelve `{"caducadas": 1}`."""
+    vehiculo = _crear_vehiculo(db_session, patente="CV111CV", tipo="auto")
+    resp_post = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+    assert resp_post.status_code == 201
+    reserva_id = resp_post.json()["id"]
+
+    resp = app_client.post("/reservas/caducar-vencidas")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"caducadas": 1}
+
+    from app.features.reservas import repository as reservas_repository
+
+    reserva = reservas_repository.obtener_por_id(db_session, reserva_id)
+    assert reserva.estado.value == "caducada"
+
+
+def test_post_caducar_vencidas_respeta_rate_limit(app_client, db_session):
+    """TM-C-02: máx. 60 consultas por IP por minuto sobre la clave
+    `"reservas-caducar-vencidas"` (balde de LECTURA, no el de mutaciones)."""
+    for _ in range(60):
+        resp = app_client.post("/reservas/caducar-vencidas")
+        assert resp.status_code == 200, resp.text
+
+    resp_bloqueado = app_client.post("/reservas/caducar-vencidas")
+
+    assert resp_bloqueado.status_code == 429
+
+
+def test_post_caducar_vencidas_no_requiere_auth(app_client, db_session):
+    """Público, mismo criterio que el resto de `/reservas`: sin header
+    `Authorization` responde `200`, no `401`."""
+    resp = app_client.post("/reservas/caducar-vencidas")
+
+    assert resp.status_code == 200
+
+
+def test_get_reservas_devuelve_caducada_como_estado_valido(app_client, db_session):
+    """AC-07: tras el sweep, `GET /reservas` devuelve `"estado": "caducada"`
+    para la reserva afectada, sin error de validación de Pydantic."""
+    vehiculo = _crear_vehiculo(db_session, patente="CV222CV", tipo="auto")
+    resp_post = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+    assert resp_post.status_code == 201
+    reserva_id = resp_post.json()["id"]
+
+    resp_caducar = app_client.post("/reservas/caducar-vencidas")
+    assert resp_caducar.status_code == 200
+
+    resp = app_client.get("/reservas")
+
+    assert resp.status_code == 200
+    por_id = {item["id"]: item for item in resp.json()}
+    assert por_id[reserva_id]["estado"] == "caducada"
+
+
+def test_crear_reserva_no_bloqueada_por_reserva_caducada_solapada(app_client, db_session):
+    """AC-03: una reserva `caducada` con fechas que solaparían si estuviera
+    `activa` NO bloquea una reserva nueva sobre el mismo rango."""
+    vehiculo = _crear_vehiculo(db_session, patente="CV333CV", tipo="auto")
+    resp_vieja = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+    assert resp_vieja.status_code == 201
+
+    resp_caducar = app_client.post("/reservas/caducar-vencidas")
+    assert resp_caducar.status_code == 200
+    assert resp_caducar.json() == {"caducadas": 1}
+
+    resp_nueva = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+
+    assert resp_nueva.status_code == 201
+
+
+def test_baja_vehiculo_no_bloqueada_por_reserva_caducada(app_client, db_session):
+    """AC-04: un vehículo con solo reservas `caducada` (ninguna `activa`)
+    puede darse de baja temporal."""
+    vehiculo = _crear_vehiculo(db_session, patente="CV444CV", tipo="auto")
+    resp_post = app_client.post(
+        "/reservas", json=_reserva_payload_real(vehiculo.id, -10, -8)
+    )
+    assert resp_post.status_code == 201
+
+    resp_caducar = app_client.post("/reservas/caducar-vencidas")
+    assert resp_caducar.status_code == 200
+    assert resp_caducar.json() == {"caducadas": 1}
+
+    vehiculo_dado_de_baja = vehiculos_service.dar_de_baja_temporal(db_session, vehiculo.id)
+
+    assert vehiculo_dado_de_baja.estado == EstadoVehiculo.baja_temporal

@@ -196,3 +196,182 @@ def test_migracion_reservas_requiere_vehiculo_existente(test_database_url: str):
         engine.dispose()
 
     _run_alembic("downgrade", "base", database_url=test_database_url)
+
+
+def test_migracion_agrega_caducada_al_check(test_database_url: str):
+    """Test de la migración `0004_estado_caducada` (Block 1 de FEAT-005).
+
+    Tras `upgrade head`, el CHECK `estado_reserva` debe aceptar `'caducada'`
+    como tercer valor válido, y seguir rechazando cualquier valor fuera del
+    enum.
+    """
+    _run_alembic("downgrade", "base", database_url=test_database_url)
+    result = _run_alembic("upgrade", "head", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade head falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'auto')"),
+                {"p": "AA111CC"},
+            )
+            vehiculo_id = conn.execute(
+                sa.text("SELECT id FROM vehiculos WHERE patente = :p"), {"p": "AA111CC"}
+            ).scalar()
+            conn.execute(
+                sa.text(
+                    "INSERT INTO reservas "
+                    "(vehiculo_id, nombre_empleado, legajo, licencia, "
+                    "fecha_inicio, fecha_fin, destino) "
+                    "VALUES (:vid, 'Juan Perez', '123', 'B1', "
+                    "'2026-08-09T10:00:00+00:00', '2026-08-10T10:00:00+00:00', 'Rosario')"
+                ),
+                {"vid": vehiculo_id},
+            )
+            reserva_id = conn.execute(
+                sa.text("SELECT id FROM reservas WHERE vehiculo_id = :vid"),
+                {"vid": vehiculo_id},
+            ).scalar()
+
+        # 'caducada' es un valor válido tras la migración: no viola el CHECK.
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("UPDATE reservas SET estado = 'caducada' WHERE id = :rid"),
+                {"rid": reserva_id},
+            )
+
+        # Un valor fuera del enum sigue violando el CHECK ('pendiente' entra
+        # en el largo de columna VARCHAR(10), a diferencia de 'inexistente',
+        # para que la violación sea del CHECK y no del límite de longitud).
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                sa.text("UPDATE reservas SET estado = 'pendiente' WHERE id = :rid"),
+                {"rid": reserva_id},
+            )
+        # Limpieza previa al downgrade: una fila en 'caducada' haría fallar
+        # el propio downgrade (ver comentario en 0004_estado_caducada.py),
+        # y dejaría la base sucia para el resto de la suite.
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("DELETE FROM reservas WHERE id = :rid"), {"rid": reserva_id}
+            )
+    finally:
+        engine.dispose()
+
+    downgrade_result = _run_alembic("downgrade", "base", database_url=test_database_url)
+    assert downgrade_result.returncode == 0, (
+        f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
+        f"stderr: {downgrade_result.stderr}"
+    )
+
+
+def test_migracion_no_reescribe_filas_existentes(test_database_url: str):
+    """AC-06: la migración `0004` amplía solo el CHECK y agrega un índice —
+    no debe tocar (ni mediante DML ni por efecto de un `ALTER` que reescriba
+    filas) reservas `activa` ya vencidas que existían antes de aplicarla.
+    """
+    _run_alembic("downgrade", "base", database_url=test_database_url)
+    # Aplica hasta 0003 (antes de la migración bajo test) e inserta la fila.
+    result = _run_alembic("upgrade", "0003", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade 0003 falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("INSERT INTO vehiculos (patente, tipo) VALUES (:p, 'auto')"),
+                {"p": "AA111DD"},
+            )
+            vehiculo_id = conn.execute(
+                sa.text("SELECT id FROM vehiculos WHERE patente = :p"), {"p": "AA111DD"}
+            ).scalar()
+            conn.execute(
+                sa.text(
+                    "INSERT INTO reservas "
+                    "(vehiculo_id, nombre_empleado, legajo, licencia, "
+                    "fecha_inicio, fecha_fin, destino) "
+                    "VALUES (:vid, 'Juan Perez', '123', 'B1', "
+                    "'2020-01-01T10:00:00+00:00', '2020-01-02T10:00:00+00:00', 'Rosario')"
+                ),
+                {"vid": vehiculo_id},
+            )
+            reserva_id = conn.execute(
+                sa.text("SELECT id FROM reservas WHERE vehiculo_id = :vid"),
+                {"vid": vehiculo_id},
+            ).scalar()
+    finally:
+        engine.dispose()
+
+    result = _run_alembic("upgrade", "head", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade head falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        with engine.begin() as conn:
+            # Confirma que la migración 0004 realmente se aplicó (no solo
+            # que "upgrade head" fue un no-op porque el archivo no existe).
+            version = conn.execute(
+                sa.text("SELECT version_num FROM alembic_version")
+            ).scalar()
+            assert version == "0004", (
+                f"la cadena no llegó a la migración 0004; version_num={version!r}"
+            )
+
+            row = conn.execute(
+                sa.text(
+                    "SELECT estado, fecha_fin FROM reservas WHERE id = :rid"
+                ),
+                {"rid": reserva_id},
+            ).one()
+        assert row.estado == "activa", (
+            "la migración 0004 no debe reescribir reservas activas preexistentes"
+        )
+    finally:
+        engine.dispose()
+
+    downgrade_result = _run_alembic("downgrade", "base", database_url=test_database_url)
+    assert downgrade_result.returncode == 0, (
+        f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
+        f"stderr: {downgrade_result.stderr}"
+    )
+
+
+def test_migracion_crea_indice_estado_fecha_fin(test_database_url: str):
+    """Mitigación M-01 del threat model: la migración `0004` debe crear el
+    índice compuesto `(estado, fecha_fin)` para que el UPDATE masivo de
+    `caducar_vencidas` (Block 2) no haga full scan.
+    """
+    _run_alembic("downgrade", "base", database_url=test_database_url)
+    result = _run_alembic("upgrade", "head", database_url=test_database_url)
+    assert result.returncode == 0, (
+        f"alembic upgrade head falló.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    engine = sa.create_engine(test_database_url)
+    try:
+        inspector = sa.inspect(engine)
+        indexes = inspector.get_indexes("reservas")
+        estado_fecha_fin = [
+            idx
+            for idx in indexes
+            if idx["name"] == "ix_reservas_estado_fecha_fin"
+        ]
+        assert estado_fecha_fin, (
+            f"no se encontró el índice 'ix_reservas_estado_fecha_fin'; índices existentes: {indexes}"
+        )
+        assert estado_fecha_fin[0]["column_names"] == ["estado", "fecha_fin"]
+    finally:
+        engine.dispose()
+
+    downgrade_result = _run_alembic("downgrade", "base", database_url=test_database_url)
+    assert downgrade_result.returncode == 0, (
+        f"alembic downgrade base falló.\nstdout: {downgrade_result.stdout}\n"
+        f"stderr: {downgrade_result.stderr}"
+    )

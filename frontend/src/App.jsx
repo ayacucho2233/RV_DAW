@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { SessionContext } from "./context/SessionContext";
 import { setAuthSession, setUnauthorizedHandler } from "./api/client";
+import { caducarReservasVencidas } from "./features/reservas/reservasApi";
 import LoginAdmin from "./features/vehiculos/LoginAdmin";
 import VehiculosAdminPage from "./features/vehiculos/VehiculosAdminPage";
 import ReservasPublicPage from "./features/reservas/ReservasPublicPage";
@@ -40,6 +41,22 @@ import { IconArrowLeft, IconLogout } from "./components/icons";
 export default function App() {
   const [session, setSession] = useState(null);
   const [vista, setVista] = useState("menu");
+
+  useEffect(() => {
+    // FEAT-005 (Block 4): dispara el sweep de reservas vencidas una sola vez
+    // al entrar al programa desde el explorador (decisión de PLAN). Fire-
+    // and-forget: no bloquea el render de MenuPrincipal.
+    //
+    // Excepción explícita a "Nunca captura silenciosa" de AGENTS.md: es una
+    // llamada de mantenimiento en background, sin ninguna acción de usuario
+    // a la que traducir un mensaje visible de error, y un fallo acá no
+    // degrada la app (una reserva que no caducó todavía lo hace en el
+    // próximo mount). Se loguea a console.error para no perder la señal por
+    // completo.
+    caducarReservasVencidas().catch((error) => {
+      console.error("No se pudo caducar las reservas vencidas al montar la app.", error);
+    });
+  }, []);
 
   useEffect(() => {
     setAuthSession(session);

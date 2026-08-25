@@ -20,6 +20,7 @@ from app.core.database import Base
 class EstadoReserva(str, enum.Enum):
     activa = "activa"
     cancelada = "cancelada"
+    caducada = "caducada"
 
 
 class Reserva(Base):

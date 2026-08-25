@@ -10,7 +10,7 @@ Este módulo solo toca la tabla `reservas` — el lock sobre `vehiculos` vive en
 """
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.features.reservas.models import EstadoReserva, Reserva
@@ -120,3 +120,21 @@ def guardar(db: Session, reserva: Reserva) -> Reserva:
     db.commit()
     db.refresh(reserva)
     return reserva
+
+
+def caducar_vencidas(db: Session, ahora: datetime) -> int:
+    """`UPDATE` masivo (FR-02, Block 2 de FEAT-005): toda reserva `activa`
+    con `fecha_fin < ahora` pasa a `caducada`, vía SQLAlchemy Core — sin
+    cargar filas a Python (serían potencialmente muchas, y acá solo hace
+    falta la cantidad afectada). Usa el índice `ix_reservas_estado_fecha_fin`
+    (Block 1) para no hacer full scan. Comitea ella misma, mismo patrón de
+    `crear`/`guardar` en este archivo y en `vehiculos_repository`: el commit
+    nunca vive en `service.py`."""
+    stmt = (
+        update(Reserva)
+        .where(Reserva.estado == EstadoReserva.activa, Reserva.fecha_fin < ahora)
+        .values(estado=EstadoReserva.caducada)
+    )
+    result = db.execute(stmt)
+    db.commit()
+    return result.rowcount

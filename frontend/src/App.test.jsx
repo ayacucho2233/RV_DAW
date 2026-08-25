@@ -8,7 +8,7 @@ import { useSession } from "./context/SessionContext";
 // para poder simularlo desde el test, sin depender de una llamada real a la
 // API (App.test.jsx se mantiene aislado, igual que los mocks de los 4
 // componentes reutilizados de abajo).
-const { setAuthSessionMock, setUnauthorizedHandlerMock, unauthorizedHandlerRef } = vi.hoisted(() => {
+const { setAuthSessionMock, setUnauthorizedHandlerMock, unauthorizedHandlerRef, postMock } = vi.hoisted(() => {
   const ref = { current: null };
   return {
     setAuthSessionMock: vi.fn(),
@@ -16,12 +16,19 @@ const { setAuthSessionMock, setUnauthorizedHandlerMock, unauthorizedHandlerRef }
       ref.current = handler;
     }),
     unauthorizedHandlerRef: ref,
+    // El useEffect nuevo de App.jsx (FEAT-005, Block 4) llama a
+    // caducarReservasVencidas(), que a su vez llama a apiClient.post (el
+    // `default` de client.js) vía reservasApi.js — sin este mock, cualquier
+    // test que monte <App/> revienta con "Cannot read properties of
+    // undefined (reading 'post')".
+    postMock: vi.fn().mockResolvedValue({ data: { caducadas: 0 } }),
   };
 });
 
 vi.mock("./api/client", () => ({
   setAuthSession: setAuthSessionMock,
   setUnauthorizedHandler: setUnauthorizedHandlerMock,
+  default: { post: postMock },
 }));
 
 // Los 4 componentes reutilizados ya tienen su propia cobertura (spec Block 3,
@@ -182,5 +189,42 @@ describe("App", () => {
     expect(screen.queryByTestId("vehiculos-admin-page")).not.toBeInTheDocument();
     expect(screen.getByTestId("login-admin")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /cerrar sesión/i })).not.toBeInTheDocument();
+  });
+
+  it("llama a caducarReservasVencidas una vez al montar", async () => {
+    // Mockeamos reservasApi.js directamente (en vez de ./api/client, usado
+    // por el resto de la suite) para aislar este assert de la
+    // implementación interna de caducarReservasVencidas — spec Block 4 de
+    // FEAT-005. vi.resetModules()+import() dinámico es necesario porque
+    // App ya fue importado estáticamente arriba con el mock de ./api/client
+    // vigente para el resto de los tests.
+    vi.resetModules();
+    const caducarReservasVencidasMock = vi.fn().mockResolvedValue({ caducadas: 0 });
+    vi.doMock("./features/reservas/reservasApi", () => ({
+      caducarReservasVencidas: caducarReservasVencidasMock,
+    }));
+
+    const { default: AppConMockDirecto } = await import("./App");
+    render(<AppConMockDirecto />);
+
+    expect(caducarReservasVencidasMock).toHaveBeenCalledTimes(1);
+
+    vi.doUnmock("./features/reservas/reservasApi");
+    vi.resetModules();
+  });
+
+  it("no falla si caducarReservasVencidas rechaza", async () => {
+    postMock.mockRejectedValueOnce(new Error("Network Error"));
+
+    render(<App />);
+
+    // Confirma que el efecto realmente se disparó (y que su promesa fue la
+    // que rechazó) antes de verificar que la app sigue en pie — si no, el
+    // test pasaría trivialmente incluso sin el useEffect implementado.
+    await vi.waitFor(() => expect(postMock).toHaveBeenCalled());
+
+    expect(screen.getByRole("button", { name: /consultar/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /gestionar reservas/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Administrador" })).toBeInTheDocument();
   });
 });
