@@ -34,6 +34,7 @@ from app.features.reservas.schemas import (
     FiltroPeriodoReserva,
     ReservaListItem,
     VehiculoPublico,
+    clasificar_periodo_reserva,
 )
 from app.features.vehiculos import repository as vehiculos_repository
 from app.features.vehiculos.models import EstadoVehiculo
@@ -156,12 +157,11 @@ def listar_reservas(
 
     if periodo is not None:
         ahora = datetime.now(timezone.utc)
-        if periodo == "futuras":
-            reservas = [r for r in reservas if r.fecha_inicio > ahora]
-        elif periodo == "en_curso":
-            reservas = [r for r in reservas if r.fecha_inicio <= ahora <= r.fecha_fin]
-        elif periodo == "pasadas":
-            reservas = [r for r in reservas if r.fecha_fin < ahora]
+        reservas = [
+            r
+            for r in reservas
+            if clasificar_periodo_reserva(r.fecha_inicio, r.fecha_fin, ahora) == periodo
+        ]
 
     return [
         ReservaListItem(
