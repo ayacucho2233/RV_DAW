@@ -1,7 +1,7 @@
 """Router HTTP del feature `reservas` (Block 3 de FEAT-001c; Block 2 de
 FEAT-001d agrega `GET /reservas` y `PATCH /reservas/{id}/cancelar`).
 
-Los 6 endpoints públicos del pool de reservas. Cada uno llama al método de
+Los 7 endpoints públicos del pool de reservas. Cada uno llama al método de
 `service.py` correspondiente dentro de un `try/except` que
 traduce las excepciones de dominio a HTTP según la tabla del spec — nunca
 accede a la base directamente (AGENTS.md: "Layer separation", el router
@@ -32,12 +32,24 @@ usado en `app.core.security.verificar_admin`. Al superarse el límite,
 `POST /reservas` y `PATCH /reservas/{id}/cancelar`: máx. 10 mutaciones por
 IP por hora cada uno. `GET /reservas/vehiculos`, `GET /reservas/disponibilidad`,
 `GET /reservas` y `GET /reservas/vehiculo/{patente}`: máx. 60 consultas por
-IP por minuto cada uno — los 6 endpoints cuentan de forma independiente
+IP por minuto cada uno — los 7 endpoints cuentan de forma independiente
 entre sí (cada uno con su propia clave de contador: `"reservas-post"`,
 `"reservas-cancelar"`, `"reservas-vehiculos"`, `"reservas-disponibilidad"`,
-`"reservas-listado"`, `"reservas-por-patente"`), no un único balde
-compartido, ya que el spec no exige compartirlo y así un abuso de uno no
-descuenta cupo del otro.
+`"reservas-listado"`, `"reservas-por-patente"`, `"reservas-caducar-vencidas"`),
+no un único balde compartido, ya que el spec no exige compartirlo y así un
+abuso de uno no descuenta cupo del otro.
+
+`POST /reservas/caducar-vencidas` (Block 3 de FEAT-005): pese a ser un
+`POST` que muta (transiciona reservas `activa` vencidas a `caducada`), se
+clasifica bajo el balde de LECTURA (60/minuto, clave
+`"reservas-caducar-vencidas"`) y NO bajo el de mutaciones (10/hora) que
+usan `POST /reservas` y `PATCH /reservas/{id}/cancelar`. Motivo: el
+frontend lo dispara automáticamente en cada carga de página (una vez al
+montar `App.jsx`, decisión de PLAN), no como resultado de una acción
+puntual del usuario — bajo el balde de 10/hora quedaría inoperante en la
+mayoría de esas cargas, ya que cualquier usuario que recargue la página
+más de 10 veces por hora empezaría a recibir `429` en una operación de
+mantenimiento que no le compete directamente.
 """
 from datetime import datetime
 
@@ -58,6 +70,7 @@ from app.features.reservas.exceptions import (
     VehiculoNoEncontradoError,
 )
 from app.features.reservas.schemas import (
+    CaducarVencidasOut,
     CancelarReservaRequest,
     DisponibilidadOut,
     FiltroPeriodoReserva,
@@ -189,3 +202,17 @@ def consultar_reservas_por_patente(
         return service.consultar_reservas_activas_por_patente(db, patente)
     except VehiculoNoEncontradoError as exc:
         raise _a_http(exc) from exc
+
+
+@router.post("/caducar-vencidas", response_model=CaducarVencidasOut)
+def caducar_reservas_vencidas(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> CaducarVencidasOut:
+    """FR-02/FR-05 (Block 3 de FEAT-005): transiciona a `caducada` toda
+    reserva `activa` cuya `fecha_fin` ya pasó. Sin body, público, bajo el
+    balde de LECTURA (ver docstring del módulo)."""
+    _aplicar_rate_limit(request, _LIMITE_LECTURA, "reservas-caducar-vencidas")
+    ip_origen = request.client.host if request.client else "desconocido"
+    count = service.caducar_reservas_vencidas(db, ip_origen)
+    return CaducarVencidasOut(caducadas=count)

@@ -26,8 +26,10 @@ from app.features.reservas.exceptions import (
     VehiculoNoActivoError,
     VehiculoNoEncontradoError,
 )
+from app.features.reservas.models import EstadoReserva
 from app.features.reservas.schemas import ReservaCreate
 from app.features.reservas.service import (
+    caducar_reservas_vencidas,
     cancelar_reserva,
     consultar_disponibilidad,
     consultar_reservas_activas_por_patente,
@@ -701,3 +703,116 @@ def test_consultar_reservas_activas_patente_case_insensitive(db_session):
 
     assert len(resultado) == 1
     assert resultado[0].id == reserva.id
+
+
+# --- Block 2 de spec-FEAT-005: caducar reservas vencidas ---
+
+
+def test_caducar_vencidas_transiciona_activa_vencida_a_caducada(db_session):
+    """AC-01: una reserva `activa` con `fecha_fin` estrictamente en el
+    pasado pasa a `caducada`."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+
+    caducadas = repository.caducar_vencidas(db_session, datetime.now(timezone.utc))
+
+    db_session.refresh(reserva)
+    assert caducadas == 1
+    assert reserva.estado == EstadoReserva.caducada
+
+
+def test_caducar_vencidas_no_toca_activa_vigente(db_session):
+    """AC-02: una reserva `activa` con `fecha_fin >= ahora` permanece
+    `activa`."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST
+    )
+
+    caducadas = repository.caducar_vencidas(db_session, datetime.now(timezone.utc))
+
+    db_session.refresh(reserva)
+    assert caducadas == 0
+    assert reserva.estado == EstadoReserva.activa
+
+
+def test_caducar_vencidas_no_toca_ya_cancelada_ni_ya_caducada(db_session):
+    """Idempotencia: reservas que ya están en `cancelada`/`caducada` no se
+    tocan ni se cuentan de nuevo."""
+    vehiculo = _crear_vehiculo(db_session, patente="CC111CC")
+    reserva_cancelada = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+    cancelar_reserva(db_session, reserva_cancelada.id, legajo="1234", ip_origen=IP_TEST)
+
+    vehiculo2 = _crear_vehiculo(db_session, patente="CC222CC")
+    reserva_ya_caducada = crear_reserva(
+        db_session, _reserva_data(vehiculo2.id, _dt_real(-8), _dt_real(-6)), ip_origen=IP_TEST
+    )
+    reserva_ya_caducada.estado = EstadoReserva.caducada
+    repository.guardar(db_session, reserva_ya_caducada)
+
+    caducadas = repository.caducar_vencidas(db_session, datetime.now(timezone.utc))
+
+    db_session.refresh(reserva_cancelada)
+    db_session.refresh(reserva_ya_caducada)
+    assert caducadas == 0
+    assert reserva_cancelada.estado == EstadoReserva.cancelada
+    assert reserva_ya_caducada.estado == EstadoReserva.caducada
+
+
+def test_caducar_vencidas_devuelve_cantidad_correcta(db_session):
+    """El `int` devuelto coincide con la cantidad real de filas
+    transicionadas: dos vencidas y una vigente, solo cuenta las dos."""
+    v1 = _crear_vehiculo(db_session, patente="CT111CT")
+    v2 = _crear_vehiculo(db_session, patente="CT222CT")
+    v3 = _crear_vehiculo(db_session, patente="CT333CT")
+    crear_reserva(db_session, _reserva_data(v1.id, _dt_real(-6), _dt_real(-4)), ip_origen=IP_TEST)
+    crear_reserva(db_session, _reserva_data(v2.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST)
+    crear_reserva(db_session, _reserva_data(v3.id, _dt_real(2), _dt_real(4)), ip_origen=IP_TEST)
+
+    caducadas = repository.caducar_vencidas(db_session, datetime.now(timezone.utc))
+
+    assert caducadas == 2
+
+
+def test_caducar_reservas_vencidas_loguea_operacion(db_session, caplog):
+    """El log de `caducar_reservas_vencidas` incluye `operacion=
+    caducar_vencidas` y el `count` correcto, sin `legajo` ni
+    `nombre_empleado` (operación masiva, no aplica PII por reserva)."""
+    vehiculo = _crear_vehiculo(db_session)
+    crear_reserva(
+        db_session,
+        _reserva_data(
+            vehiculo.id, _dt_real(-4), _dt_real(-2), nombre_empleado="Nombre Secreto Unico"
+        ),
+        ip_origen=IP_TEST,
+    )
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO, logger="app.features.reservas.service"):
+        resultado = caducar_reservas_vencidas(db_session, ip_origen=IP_TEST)
+
+    assert resultado == 1
+    mensajes = [r.getMessage() for r in caplog.records]
+    assert any(
+        "operacion=caducar_vencidas" in m and "count=1" in m and IP_TEST in m for m in mensajes
+    )
+    assert not any("legajo" in m for m in mensajes)
+    assert not any("Nombre Secreto Unico" in m for m in mensajes)
+
+
+def test_cancelar_reserva_caducada_rechaza_con_mismo_error_que_cancelada(db_session):
+    """AC-05: regresión sobre `cancelar_reserva` (sin cambiar su código)
+    confirmando que una reserva `caducada` dispara `ReservaYaCanceladaError`
+    igual que una `cancelada`."""
+    vehiculo = _crear_vehiculo(db_session)
+    reserva = crear_reserva(
+        db_session, _reserva_data(vehiculo.id, _dt_real(-4), _dt_real(-2)), ip_origen=IP_TEST
+    )
+    repository.caducar_vencidas(db_session, datetime.now(timezone.utc))
+
+    with pytest.raises(ReservaYaCanceladaError):
+        cancelar_reserva(db_session, reserva.id, legajo="1234", ip_origen=IP_TEST)

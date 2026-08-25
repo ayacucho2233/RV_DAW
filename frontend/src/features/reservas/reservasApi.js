@@ -103,3 +103,18 @@ export async function consultarReservasActivasPorVehiculo(patente) {
     return propagarError(error);
   }
 }
+
+/**
+ * FR-02: dispara el sweep masivo que transiciona a `caducada` toda reserva
+ * `activa` con `fecha_fin` vencida (Block 2/3 del backend). Llamada por
+ * `App.jsx` una sola vez al montar (Block 4) — ver ahí la justificación de
+ * por qué el fallo de esta llamada no se propaga a la UI.
+ */
+export async function caducarReservasVencidas() {
+  try {
+    const { data } = await apiClient.post("/reservas/caducar-vencidas");
+    return data;
+  } catch (error) {
+    return propagarError(error);
+  }
+}

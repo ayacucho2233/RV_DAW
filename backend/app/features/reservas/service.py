@@ -241,3 +241,25 @@ def cancelar_reserva(db: Session, reserva_id: int, legajo: str, ip_origen: str) 
 
     _log_operacion("cancelar_reserva", reserva.vehiculo_id, legajo, "ok", ip_origen)
     return reserva
+
+
+def caducar_reservas_vencidas(db: Session, ip_origen: str) -> int:
+    """FR-02 (Block 2 de FEAT-005): dispara el `UPDATE` masivo de
+    `repository.caducar_vencidas` con `ahora = datetime.now(timezone.utc)` y
+    devuelve la cantidad de reservas transicionadas.
+
+    A diferencia de `crear_reserva`/`cancelar_reserva`, este log no lleva
+    `legajo` ni `vehiculo_id` — no aplican a una operación masiva sobre
+    potencialmente muchas reservas de distintos vehículos y empleados
+    (mismo criterio de mínima PII en logs ya documentado en `_log_operacion`),
+    mitigación M-02 del threat model: sin este log, el sweep no dejaba
+    ningún rastro.
+    """
+    count = repository.caducar_vencidas(db, datetime.now(timezone.utc))
+    logger.info(
+        "operacion=caducar_vencidas count=%s resultado=ok ip_origen=%s timestamp=%s",
+        count,
+        ip_origen,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    return count
