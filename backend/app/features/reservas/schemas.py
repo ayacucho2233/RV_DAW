@@ -24,6 +24,19 @@ confundir "clasificación temporal calculada" con "estado persistido" en la
 misma respuesta."""
 
 
+def clasificar_periodo_reserva(
+    fecha_inicio: datetime, fecha_fin: datetime, ahora: datetime
+) -> FiltroPeriodoReserva:
+    """Clasificación temporal de una reserva según sus fechas y el instante
+    `ahora` (FIX-007: extraída de `service.listar_reservas` para que sea
+    invocable de forma aislada, p. ej. desde `evals/run.py`)."""
+    if fecha_inicio > ahora:
+        return "futuras"
+    if fecha_inicio <= ahora <= fecha_fin:
+        return "en_curso"
+    return "pasadas"
+
+
 def _validar_timezone_aware(valor: datetime, nombre_campo: str) -> datetime:
     if valor.tzinfo is None or valor.tzinfo.utcoffset(valor) is None:
         raise ValueError(f"{nombre_campo} debe incluir zona horaria")
